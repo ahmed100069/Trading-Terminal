@@ -1,0 +1,76 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #132238;
+  background: #f0fdf4;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --panel-border: rgba(15, 138, 113, 0.3);
+  --panel-surface: rgba(240, 253, 244, 0.9);
+  --panel-shadow: 0 24px 60px rgba(10, 21, 36, 0.12);
+  --hero-shadow: 0 30px 80px rgba(10, 21, 36, 0.18);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  font-family: "IBM Plex Sans", sans-serif;
+  background:
+    radial-gradient(circle at 12% 8%, rgba(15, 138, 113, 0.4), transparent 20%),
+    radial-gradient(circle at 88% 14%, rgba(220, 38, 38, 0.2), transparent 20%),
+    radial-gradient(circle at 72% 62%, rgba(239, 68, 68, 0.12), transparent 26%),
+    linear-gradient(180deg, #f0fdf4 0%, #dcfce7 52%, #bbf7d0 100%);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(19, 34, 56, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(19, 34, 56, 0.045) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.5), transparent 82%);
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.28), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 18%, transparent 82%, rgba(19, 34, 56, 0.04));
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+
+button {
+  transform: translateZ(0);
+}
+
+button:hover {
+  transition-duration: 180ms;
+}
