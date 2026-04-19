@@ -9,12 +9,6 @@ cmd /c npm run dev
 
 A student-friendly trading platform that now behaves more like a lightweight TradingView-style terminal. It combines live Binance spot market data for the charting experience with simple weekly strategies, backtesting, paper trading, alerts, and a clean React dashboard.
 
-## What Changed
-
-- Historical and live market data now come from Binance instead of Yahoo Finance.
-- The frontend now feels like a terminal: watchlist, live candlestick chart, order book, recent trades, and strategy controls in one screen.
-- Weekly strategies and backtests still stay intentionally simple so the project is easy to explain in a viva.
-- Crypto position sizing now supports fractional quantities, which is important for pairs like `BTCUSDT`.
 
 ## Architecture
 
