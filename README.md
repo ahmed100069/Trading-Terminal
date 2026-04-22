@@ -1,9 +1,21 @@
-﻿cd c:\AI_TRADING_PLATFORM\backend
-.\.venv\Scripts\python -m uvicorn main:app --reload
+﻿## Quick Start
 
-cd c:\AI_TRADING_PLATFORM\frontend
-cmd /c npm run dev
+### Backend
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
+### Frontend
+```bash
+cd frontend
+npm install && npm run dev
+```
+
+### Open
+- App: http://localhost:5173
+- API Docs: http://localhost:8000/docs
 
 # Crypto Strategy Terminal
 
