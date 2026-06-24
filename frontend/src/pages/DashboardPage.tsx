@@ -704,7 +704,7 @@ export function DashboardPage({ onOpenPortfolio }: DashboardPageProps) {
           </section>
         </>
       ) : (
-        <section className="mt-6 rounded-xl2 border border-leaf/30 bg-sage/75 p-8 text-sm text-ink/70 shadow-soft">
+        <section className="mt-6 rounded-[1.5rem] border border-leaf/30 bg-sage/75 p-8 text-sm text-ink/70 shadow-soft">
           {loading ? "Loading terminal..." : "No dashboard data is available yet."}
         </section>
       )}

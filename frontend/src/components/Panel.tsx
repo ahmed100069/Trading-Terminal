@@ -8,7 +8,7 @@ interface PanelProps {
 
 export function Panel({ title, subtitle, children }: PanelProps) {
   return (
-    <section className="relative overflow-hidden rounded-xl2 border border-leaf/30 bg-sage/80 p-6 shadow-soft backdrop-blur">
+    <section className="relative overflow-hidden rounded-[1.5rem] border border-leaf/30 bg-sage/80 p-6 shadow-soft backdrop-blur">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(15,138,113,0.3),transparent_30%),linear-gradient(180deg,rgba(240,253,244,0.4),transparent_55%)]" />
       <div className="relative mb-5 flex items-start justify-between gap-3">
         <div>

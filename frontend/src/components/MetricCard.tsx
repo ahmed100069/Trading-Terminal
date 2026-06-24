@@ -14,7 +14,7 @@ const toneClasses = {
 export function MetricCard({ title, value, subtitle, tone = "neutral" }: MetricCardProps) {
   return (
     <article
-      className={`relative overflow-hidden rounded-xl2 border p-5 shadow-soft ${toneClasses[tone]}`}
+      className={`relative overflow-hidden rounded-[1.5rem] border p-5 shadow-soft ${toneClasses[tone]}`}
     >
       <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-leaf via-ruby to-crimson" />
       <p className="text-sm font-medium uppercase tracking-[0.18em] text-ink/55">{title}</p>
