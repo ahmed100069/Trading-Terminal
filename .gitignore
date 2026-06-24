@@ -27,5 +27,8 @@ frontend/dist/
 # VS Code
 .vscode/
 
+vite_*.log
+vite_pid.txt
+*.log
 # Mac
 .DS_Store
