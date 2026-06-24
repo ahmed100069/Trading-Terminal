@@ -1,19 +1,37 @@
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
 .pytest_cache/
 .mypy_cache/
+
+# Virtual Environment
 .venv/
 venv/
 env/
 
+# Environment Variables
+.env
+.env.*
+
+# Database
 backend/trading_platform.db
 trading_platform.db
 
+# Frontend
 frontend/node_modules/
 frontend/dist/
 
+# Backend Node
+backend/node_modules/
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+
+# Mac
 .DS_Store
-.env
-.env.*
