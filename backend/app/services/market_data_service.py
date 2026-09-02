@@ -440,44 +440,53 @@ class MarketDataService:
         return symbols
 
     def _get_binance(self, path: str, params: dict[str, str | int]) -> list | dict:
-        try:
-            with httpx.Client(base_url=settings.binance_rest_base_url, timeout=10.0) as client:
-                response = client.get(path, params=params)
-                response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            error_message = exc.response.text
+        max_retries = 2
+        for attempt in range(max_retries):
             try:
-                error_message = exc.response.json().get("msg", error_message)
-            except ValueError:
-                pass
-            raise ValueError(f"Binance request failed: {error_message}") from exc
-        except httpx.HTTPError as exc:
-            raise ValueError("Could not reach Binance market data right now.") from exc
-
-        return response.json()
+                with httpx.Client(base_url=settings.binance_rest_base_url, timeout=15.0, follow_redirects=True) as client:
+                    response = client.get(path, params=params)
+                    response.raise_for_status()
+                    return response.json()
+            except httpx.HTTPStatusError as exc:
+                if attempt < max_retries - 1:
+                    continue
+                error_message = exc.response.text
+                try:
+                    error_message = exc.response.json().get("msg", error_message)
+                except ValueError:
+                    pass
+                raise ValueError(f"Binance request failed: {error_message}") from exc
+            except httpx.HTTPError as exc:
+                if attempt < max_retries - 1:
+                    continue
+                raise ValueError("Could not reach Binance market data right now.") from exc
 
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
         headers = {
-            "User-Agent": "Mozilla/5.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             "Accept": "application/json,text/plain,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
         }
-        try:
-            with httpx.Client(timeout=15.0, headers=headers) as client:
-                response = client.get(
-                    f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
-                    params={"range": range_value, "interval": interval, "includePrePost": "false"},
-                )
-                response.raise_for_status()
-        except httpx.HTTPError as exc:
-            raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}'.") from exc
-
-        payload = response.json()
-        error = payload.get("chart", {}).get("error")
-        result = payload.get("chart", {}).get("result")
-        if error or not result:
-            description = error.get("description") if isinstance(error, dict) else None
-            raise ValueError(description or f"No equity market data was returned for symbol '{symbol}'.")
-        return payload
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                with httpx.Client(timeout=30.0, headers=headers, follow_redirects=True) as client:
+                    response = client.get(
+                        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
+                        params={"range": range_value, "interval": interval, "includePrePost": "false"},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    error = payload.get("chart", {}).get("error")
+                    result = payload.get("chart", {}).get("result")
+                    if error or not result:
+                        description = error.get("description") if isinstance(error, dict) else None
+                        raise ValueError(description or f"No equity market data was returned for symbol '{symbol}'.")
+                    return payload
+            except httpx.HTTPError as exc:
+                if attempt < max_retries - 1:
+                    continue
+                raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}' after {max_retries} attempts.") from exc
 
     def _normalize_symbol(self, symbol: str) -> str:
         normalized_symbol = symbol.upper().strip()
