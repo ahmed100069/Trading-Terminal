@@ -9,8 +9,8 @@ uvicorn main:app --reload
 
 ### Frontend
 ```bash
-cd frontend
-npm install && npm run dev
+  cd frontend
+  npm install && npm run dev
 ```
 
 ### Open

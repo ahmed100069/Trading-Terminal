@@ -6,6 +6,7 @@ from time import time
 
 import httpx
 import pandas as pd
+import yfinance as yf
 
 from app.core.config import settings
 from app.schemas.trading import (
@@ -462,31 +463,58 @@ class MarketDataService:
                 raise ValueError("Could not reach Binance market data right now.") from exc
 
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Accept": "application/json,text/plain,*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                with httpx.Client(timeout=30.0, headers=headers, follow_redirects=True) as client:
-                    response = client.get(
-                        f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
-                        params={"range": range_value, "interval": interval, "includePrePost": "false"},
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
-                    error = payload.get("chart", {}).get("error")
-                    result = payload.get("chart", {}).get("result")
-                    if error or not result:
-                        description = error.get("description") if isinstance(error, dict) else None
-                        raise ValueError(description or f"No equity market data was returned for symbol '{symbol}'.")
-                    return payload
-            except httpx.HTTPError as exc:
-                if attempt < max_retries - 1:
-                    continue
-                raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}' after {max_retries} attempts.") from exc
+        """Fetch chart data using yfinance (more reliable than direct HTTP)."""
+        try:
+            ticker = yf.Ticker(symbol)
+            
+            # Map range and interval to yfinance parameters
+            period_map = {
+                "7d": "7d",
+                "1mo": "1mo",
+                "3mo": "3mo",
+                "2y": "2y",
+                "5y": "5y",
+                "1y": "1y",
+            }
+            period = period_map.get(range_value, "1y")
+            
+            # Fetch historical data
+            hist = ticker.history(period=period, interval=interval)
+            
+            if hist.empty:
+                raise ValueError(f"No equity market data was returned for symbol '{symbol}'.")
+            
+            # Format response to match expected structure
+            timestamps = [int(ts.timestamp()) for ts in hist.index]
+            quote_data = {
+                "open": hist["Open"].tolist(),
+                "high": hist["High"].tolist(),
+                "low": hist["Low"].tolist(),
+                "close": hist["Close"].tolist(),
+                "volume": hist["Volume"].tolist(),
+            }
+            
+            return {
+                "chart": {
+                    "result": [
+                        {
+                            "timestamp": timestamps,
+                            "indicators": {"quote": [quote_data]},
+                            "meta": {
+                                "longName": ticker.info.get("longName", symbol),
+                                "regularMarketPrice": float(hist["Close"].iloc[-1]) if len(hist) > 0 else 0,
+                                "regularMarketTime": int(hist.index[-1].timestamp()) if len(hist) > 0 else int(time()),
+                                "previousClose": float(hist["Close"].iloc[-2]) if len(hist) > 1 else float(hist["Close"].iloc[-1]),
+                                "regularMarketVolume": int(hist["Volume"].iloc[-1]) if len(hist) > 0 else 0,
+                                "regularMarketDayHigh": float(hist["High"].max()) if len(hist) > 0 else 0,
+                                "regularMarketDayLow": float(hist["Low"].min()) if len(hist) > 0 else 0,
+                            },
+                        }
+                    ]
+                }
+            }
+        except Exception as exc:
+            raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}'.") from exc
 
     def _normalize_symbol(self, symbol: str) -> str:
         normalized_symbol = symbol.upper().strip()
