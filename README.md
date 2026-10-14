@@ -33,7 +33,7 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-The one-command startup script passes these values to the backend for session verification. In deployed environments, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the backend and the `VITE_` variables on the frontend. Never use a Supabase secret or service-role key in the browser. Email confirmation must be completed before signing in when enabled.
+The one-command startup script passes these values to the backend for session verification. In deployed environments, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the backend and the `VITE_` variables on the frontend. Existing backends using the legacy `SUPABASE_ANON_KEY` name are supported as a fallback. Never use a Supabase secret or service-role key in the browser. Email confirmation must be completed before signing in when enabled.
 
 # Trading Terminal
 

@@ -30,7 +30,11 @@ class Settings:
     backend_port: int = int(os.getenv("BACKEND_PORT", "8000"))
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./trading_platform.db")
     supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
-    supabase_publishable_key: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
+    # SUPABASE_ANON_KEY is the legacy Supabase name. Accept it as a fallback so
+    # existing Render services configured before the publishable-key rename work.
+    supabase_publishable_key: str = os.getenv(
+        "SUPABASE_PUBLISHABLE_KEY", os.getenv("SUPABASE_ANON_KEY", "")
+    )
     alert_mode: str = os.getenv("ALERT_MODE", "console")
     alert_email_from: str | None = os.getenv("ALERT_EMAIL_FROM")
     alert_email_to: str | None = os.getenv("ALERT_EMAIL_TO")
