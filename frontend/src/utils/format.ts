@@ -7,6 +7,17 @@ export function formatRupees(value: number, digits = 2): string {
   }).format(value);
 }
 
+export function formatMarketPrice(value: number, symbol: string): string {
+  if (symbol.endsWith(".NS") || symbol.endsWith(".BO")) {
+    return formatRupees(value);
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value < 1 ? 6 : 2,
+  }).format(value);
+}
+
 const INDIAN_TIME_ZONE = "Asia/Kolkata";
 
 export function formatIndianDate(value: string | number | Date): string {

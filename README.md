@@ -44,7 +44,7 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 
 ### Backend
 - `backend/main.py`: FastAPI app setup and router registration.
-- `backend/app/services/market_data_service.py`: Binance REST integration for overview, candles, weekly bars, order book, recent trades, and watchlist data.
+- `backend/app/services/market_data_service.py`: Kraken REST integration for crypto overview, candles, weekly bars, order book, recent trades, and watchlist data; Yahoo Finance for Indian equities.
 - `backend/app/strategies/`: modular weekly strategies.
 - `backend/app/backtesting/engine.py`: readable weekly simulation engine.
 - `backend/app/services/paper_trading_service.py`: paper-trading sync, alerts, and SQLite persistence.
@@ -56,14 +56,14 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 - `frontend/src/pages/PortfolioPage.tsx`: paper-trading ledger and performance summary.
 - `frontend/src/components/LiveCandlestickChart.tsx`: TradingView Lightweight Charts integration with live Binance WebSocket updates.
 - `frontend/src/components/WatchlistPanel.tsx`: market selector.
-- `frontend/src/components/MarketMicrostructurePanel.tsx`: opt-in, lazy-loaded Binance order book and recent public trades.
+- `frontend/src/components/MarketMicrostructurePanel.tsx`: opt-in, lazy-loaded crypto order book and recent public trades.
 - `frontend/src/components/EquityCurveChart.tsx`: weekly strategy equity curve.
 - `frontend/src/components/RiskAnalysisPanel.tsx` and `SystemHealthPanel.tsx`: focused risk and infrastructure views.
 
 ## Main Features
 
 ### Live market terminal
-- Watchlist of major Binance spot pairs.
+- Watchlist of major USD quoted crypto pairs plus Indian equities.
 - Live candlestick chart with interval switching.
 - Live price display.
 - Optional order book and recent public trade details for crypto pairs.
@@ -74,7 +74,7 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 - 12-week Momentum.
 
 ### Backtesting
-- Weekly simulation using closed Binance weekly candles.
+- Weekly simulation using closed Kraken weekly candles for crypto and Yahoo Finance weekly bars for Indian equities.
 - Total return.
 - Win rate.
 - Max drawdown.
@@ -134,7 +134,7 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 - **Data processing:** pandas
 - **API client:** httpx
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
-- **Market data:** Binance REST / WebSocket and Yahoo Finance for Indian equities
+- **Market data:** Kraken REST for crypto analysis, Binance WebSocket for live charts, and Yahoo Finance for Indian equities
 - **Architecture:** full-stack API + route-aware SPA with shared market-analysis data and service/strategy layers
 
 ## How To Run
@@ -181,7 +181,7 @@ npm run dev
 ## Suggested Demo Flow
 
 1. Open the terminal with `BTCUSDT` or switch to another pair from the watchlist.
-2. Show the live candlestick chart and explain that Binance WebSocket updates keep the newest candle moving.
+2. Show the live candlestick chart and explain that Binance WebSocket updates keep the newest candle moving while Kraken supplies the backend analysis data.
 3. Explain that strategies still use closed weekly candles for clean and stable signals.
 4. Run a weekly backtest and discuss total return, win rate, max drawdown, and trade history.
 5. Sync paper trading and show positions, alerts, and paper trade history.

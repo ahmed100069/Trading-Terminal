@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from time import time
 
@@ -50,10 +49,9 @@ YAHOO_EQUITY_SYMBOL_ALIASES = {
 
 class MarketDataService:
     def __init__(self) -> None:
-        self._exchange_symbols_cache: list[dict[str, str | bool]] = []
-        self._exchange_symbols_cache_updated_at = 0.0
-        self._exchange_symbols_cache_ttl_seconds = 900.0
-        self._binance_response_cache: dict[str, tuple[float, list | dict]] = {}
+        self._kraken_cache: dict[str, tuple[float, dict]] = {}
+        self._kraken_pairs_by_altname: dict[str, tuple[str, dict]] = {}
+        self._kraken_pairs_updated_at = 0.0
 
     def fetch_weekly_bars(self, symbol: str, weeks: int = 156) -> pd.DataFrame:
         normalized_symbol = self._normalize_symbol(symbol)
@@ -66,38 +64,13 @@ class MarketDataService:
                 raise ValueError(f"No weekly data was returned for symbol '{normalized_symbol}'.")
             return weekly_data
 
-        raw_klines = self._get_binance(
-            "/api/v3/klines",
-            {
-                "symbol": normalized_symbol,
-                "interval": "1w",
-                "limit": min(weeks + 4, 1000),
-            },
-        )
-
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        rows: list[dict[str, float | pd.Timestamp]] = []
-
-        for kline in raw_klines:
-            close_time_ms = int(kline[6])
-            if close_time_ms > now_ms:
-                continue
-
-            rows.append(
-                {
-                    "open_time": pd.to_datetime(int(kline[0]), unit="ms", utc=True).tz_localize(None),
-                    "open": float(kline[1]),
-                    "high": float(kline[2]),
-                    "low": float(kline[3]),
-                    "close": float(kline[4]),
-                    "volume": float(kline[5]),
-                }
-            )
-
-        weekly_data = pd.DataFrame(rows)
+        ohlc = self._fetch_kraken_ohlc(normalized_symbol, interval=10080)
+        weekly_data = self._ohlc_frame(ohlc)
         if weekly_data.empty:
-            raise ValueError(f"No closed weekly Binance candles were returned for symbol '{normalized_symbol}'.")
+            raise ValueError(f"No closed weekly Kraken candles were returned for symbol '{normalized_symbol}'.")
 
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        weekly_data = weekly_data[weekly_data["open_time"] + timedelta(days=7) <= now_utc]
         weekly_data = weekly_data.set_index("open_time").tail(weeks)
         return weekly_data
 
@@ -121,40 +94,52 @@ class MarketDataService:
                 for row in history.tail(limit).itertuples(index=False)
             ]
 
-        raw_klines = self._get_binance(
-            "/api/v3/uiKlines",
-            {
-                "symbol": normalized_symbol,
-                "interval": interval,
-                "limit": min(limit, 1000),
-            },
-        )
-        return [self._to_candle_response(kline) for kline in raw_klines]
+        kraken_interval = self._kraken_interval(interval)
+        rows = self._fetch_kraken_ohlc(normalized_symbol, interval=kraken_interval)
+        candles = []
+        for row in rows[-min(limit, 720):]:
+            open_time = self._to_datetime(int(float(row[0]) * 1000))
+            close_time = open_time + self._interval_delta(interval)
+            candles.append(CandleResponse(
+                open_time=open_time,
+                close_time=close_time,
+                open=float(row[1]),
+                high=float(row[2]),
+                low=float(row[3]),
+                close=float(row[4]),
+                volume=float(row[6]),
+                quote_volume=float(row[4]) * float(row[6]),
+                trade_count=int(row[7]),
+                is_closed=close_time <= datetime.now(timezone.utc),
+            ))
+        return candles
 
     def fetch_market_overview(self, symbol: str) -> MarketOverviewResponse:
         normalized_symbol = self._normalize_symbol(symbol)
         if self._is_indian_equity(normalized_symbol):
             return self._fetch_equity_market_overview(normalized_symbol)
 
-        payload = self._get_binance("/api/v3/ticker/24hr", {"symbol": normalized_symbol})
+        ticker = self._fetch_kraken_ticker(normalized_symbol)
+        last_price = float(ticker["c"][0])
+        open_price = float(ticker["o"])
         return MarketOverviewResponse(
-            symbol=payload["symbol"],
-            display_name=self._crypto_display_name(payload["symbol"]),
-            market="Binance Spot",
+            symbol=normalized_symbol,
+            display_name=self._crypto_display_name(normalized_symbol),
+            market="Kraken Spot",
             asset_class="crypto",
-            last_price=float(payload["lastPrice"]),
-            price_change=float(payload["priceChange"]),
-            price_change_percent=float(payload["priceChangePercent"]),
-            weighted_avg_price=float(payload["weightedAvgPrice"]),
-            high_price=float(payload["highPrice"]),
-            low_price=float(payload["lowPrice"]),
-            volume=float(payload["volume"]),
-            quote_volume=float(payload["quoteVolume"]),
-            bid_price=float(payload["bidPrice"]),
-            ask_price=float(payload["askPrice"]),
-            open_time=self._to_datetime(payload["openTime"]),
-            close_time=self._to_datetime(payload["closeTime"]),
-            trade_count=int(payload["count"]),
+            last_price=last_price,
+            price_change=last_price - open_price,
+            price_change_percent=((last_price - open_price) / open_price * 100) if open_price else 0.0,
+            weighted_avg_price=float(ticker["p"][1]),
+            high_price=float(ticker["h"][1]),
+            low_price=float(ticker["l"][1]),
+            volume=float(ticker["v"][1]),
+            quote_volume=float(ticker["v"][1]) * last_price,
+            bid_price=float(ticker["b"][0]),
+            ask_price=float(ticker["a"][0]),
+            open_time=datetime.now(timezone.utc) - timedelta(hours=24),
+            close_time=datetime.now(timezone.utc),
+            trade_count=int(ticker["t"][1]),
         )
 
     def fetch_watchlist(self, symbols: list[str] | None = None) -> list[WatchlistItemResponse]:
@@ -165,19 +150,26 @@ class MarketDataService:
         equity_symbols = [symbol for symbol in requested_symbols if self._is_indian_equity(symbol)]
 
         if crypto_symbols:
-            payload = self._get_binance(
-                "/api/v3/ticker/24hr",
-                {"symbols": json.dumps(crypto_symbols, separators=(",", ":"))},
-            )
-            for item in payload:
-                items_by_symbol[item["symbol"]] = WatchlistItemResponse(
-                    symbol=item["symbol"],
-                    display_name=self._crypto_display_name(item["symbol"]),
-                    market="Binance Spot",
+            pair_ids_by_symbol = {
+                symbol: self._kraken_pair_id(self._kraken_pair_altname(symbol))
+                for symbol in crypto_symbols
+            }
+            payload = self._get_kraken("/0/public/Ticker", {
+                "pair": ",".join(dict.fromkeys(pair_ids_by_symbol.values())),
+            })
+            for symbol, pair_id in pair_ids_by_symbol.items():
+                ticker = payload["result"].get(pair_id)
+                if ticker is None:
+                    continue
+                last_price = float(ticker["c"][0])
+                items_by_symbol[symbol] = WatchlistItemResponse(
+                    symbol=symbol,
+                    display_name=self._crypto_display_name(symbol),
+                    market="Kraken Spot",
                     asset_class="crypto",
-                    last_price=float(item["lastPrice"]),
-                    price_change_percent=float(item["priceChangePercent"]),
-                    quote_volume=float(item["quoteVolume"]),
+                    last_price=last_price,
+                    price_change_percent=((last_price - float(ticker["o"])) / float(ticker["o"]) * 100) if float(ticker["o"]) else 0.0,
+                    quote_volume=float(ticker["v"][1]) * last_price,
                 )
 
         for symbol in equity_symbols:
@@ -213,44 +205,38 @@ class MarketDataService:
     def fetch_order_book(self, symbol: str, limit: int = 12) -> OrderBookResponse:
         normalized_symbol = self._normalize_symbol(symbol)
         if self._is_indian_equity(normalized_symbol):
-            raise ValueError("Order book is only available for Binance crypto pairs in this student project.")
+            raise ValueError("Order book is only available for crypto pairs in this project.")
 
-        payload = self._get_binance(
-            "/api/v3/depth",
-            {
-                "symbol": normalized_symbol,
-                "limit": min(limit, 100),
-            },
-        )
+        pair = self._kraken_pair_altname(normalized_symbol)
+        pair_id = self._kraken_pair_id(pair)
+        payload = self._get_kraken("/0/public/Depth", {"pair": pair, "count": min(limit, 100)})
+        book = payload["result"][pair_id]
         return OrderBookResponse(
             symbol=normalized_symbol,
-            last_update_id=int(payload["lastUpdateId"]),
-            bids=[self._to_order_book_level(level) for level in payload["bids"]],
-            asks=[self._to_order_book_level(level) for level in payload["asks"]],
+            last_update_id=int(time() * 1000),
+            bids=[OrderBookLevelResponse(price=float(level[0]), quantity=float(level[1])) for level in book["bids"]],
+            asks=[OrderBookLevelResponse(price=float(level[0]), quantity=float(level[1])) for level in book["asks"]],
         )
 
     def fetch_recent_trades(self, symbol: str, limit: int = 25) -> list[RecentTradeResponse]:
         normalized_symbol = self._normalize_symbol(symbol)
         if self._is_indian_equity(normalized_symbol):
-            raise ValueError("Recent trade tape is only available for Binance crypto pairs in this student project.")
+            raise ValueError("Recent trade tape is only available for crypto pairs in this project.")
 
-        payload = self._get_binance(
-            "/api/v3/trades",
-            {
-                "symbol": normalized_symbol,
-                "limit": min(limit, 1000),
-            },
-        )
+        pair = self._kraken_pair_altname(normalized_symbol)
+        pair_id = self._kraken_pair_id(pair)
+        payload = self._get_kraken("/0/public/Trades", {"pair": pair})
+        rows = payload["result"][pair_id][-min(limit, 1000):]
         return [
             RecentTradeResponse(
-                id=int(item["id"]),
-                price=float(item["price"]),
-                quantity=float(item["qty"]),
-                quote_quantity=float(item["quoteQty"]),
-                trade_time=self._to_datetime(item["time"]),
-                is_buyer_maker=bool(item["isBuyerMaker"]),
+                id=int(float(item[2]) * 1000) + index,
+                price=float(item[0]),
+                quantity=float(item[1]),
+                quote_quantity=float(item[0]) * float(item[1]),
+                trade_time=datetime.fromtimestamp(float(item[2]), tz=timezone.utc),
+                is_buyer_maker=item[3] == "s",
             )
-            for item in payload
+            for index, item in enumerate(rows)
         ]
 
     def to_price_bars(self, price_data: pd.DataFrame) -> list[PriceBar]:
@@ -394,22 +380,22 @@ class MarketDataService:
         return timedelta(days=1)
 
     def _search_crypto_assets(self, query: str) -> list[AssetSearchResultResponse]:
-        matching_symbols = [
-            item
-            for item in self._get_exchange_symbols()
-            if query in str(item["symbol"])
-            or query in str(item["baseAsset"])
-            or query in str(item["quoteAsset"])
-        ]
-        return [
-            AssetSearchResultResponse(
-                symbol=str(item["symbol"]),
-                display_name=f"{item['baseAsset']} / {item['quoteAsset']}",
-                market="Binance Spot",
-                asset_class="crypto",
-            )
-            for item in matching_symbols
-        ]
+        results = []
+        for _, pair_info in self._get_kraken_pairs().values():
+            wsname = str(pair_info.get("wsname") or "")
+            if "/" not in wsname or not wsname.endswith("/USD"):
+                continue
+            base = self._kraken_base_name(wsname.split("/", 1)[0])
+            app_symbol = f"{base}USDT"
+            display_name = f"{base} / USDT"
+            if query in app_symbol or query in base or query in display_name.upper():
+                results.append(AssetSearchResultResponse(
+                    symbol=app_symbol,
+                    display_name=display_name,
+                    market="Kraken Spot (USD quote)",
+                    asset_class="crypto",
+                ))
+        return results
 
     def _search_indian_equities(self, query: str) -> list[AssetSearchResultResponse]:
         matches = [
@@ -427,80 +413,101 @@ class MarketDataService:
             for item in matches
         ]
 
-    def _get_exchange_symbols(self) -> list[dict[str, str | bool]]:
-        cache_is_fresh = time() - self._exchange_symbols_cache_updated_at < self._exchange_symbols_cache_ttl_seconds
-        if self._exchange_symbols_cache and cache_is_fresh:
-            return self._exchange_symbols_cache
+    def _get_kraken_pairs(self) -> dict[str, tuple[str, dict]]:
+        if self._kraken_pairs_by_altname and time() - self._kraken_pairs_updated_at < 3600:
+            return self._kraken_pairs_by_altname
 
-        payload = self._get_binance("/api/v3/exchangeInfo", {})
-        symbols = [
+        payload = self._get_kraken("/0/public/AssetPairs", {})
+        self._kraken_pairs_by_altname = {
+            str(pair.get("altname", pair_id)): (pair_id, pair)
+            for pair_id, pair in payload["result"].items()
+            if isinstance(pair, dict)
+        }
+        self._kraken_pairs_updated_at = time()
+        return self._kraken_pairs_by_altname
+
+    def _kraken_pair_altname(self, symbol: str) -> str:
+        quote = next((item for item in ("USDT", "USDC", "BUSD", "USD") if symbol.endswith(item)), None)
+        if not quote:
+            raise ValueError(f"Kraken does not support the quote currency for '{symbol}'.")
+        base = symbol[:-len(quote)]
+        base = {"BTC": "XBT", "DOGE": "XDG"}.get(base, base)
+        return f"{base}USD"
+
+    def _kraken_pair_id(self, altname: str) -> str:
+        pair = self._get_kraken_pairs().get(altname)
+        if not pair:
+            raise ValueError(f"Kraken does not provide a USD market for '{altname}'.")
+        return pair[0]
+
+    def _kraken_base_name(self, base: str) -> str:
+        return {"XBT": "BTC", "XXBT": "BTC", "XDG": "DOGE", "XXDG": "DOGE"}.get(base, base)
+
+    def _fetch_kraken_ticker(self, symbol: str) -> dict:
+        pair = self._kraken_pair_altname(symbol)
+        pair_id = self._kraken_pair_id(pair)
+        payload = self._get_kraken("/0/public/Ticker", {"pair": pair})
+        return payload["result"][pair_id]
+
+    def _fetch_kraken_ohlc(self, symbol: str, interval: int) -> list[list]:
+        pair = self._kraken_pair_altname(symbol)
+        pair_id = self._kraken_pair_id(pair)
+        payload = self._get_kraken("/0/public/OHLC", {"pair": pair, "interval": interval})
+        return payload["result"][pair_id]
+
+    def _ohlc_frame(self, rows: list[list]) -> pd.DataFrame:
+        return pd.DataFrame([
             {
-                "symbol": item["symbol"],
-                "baseAsset": item["baseAsset"],
-                "quoteAsset": item["quoteAsset"],
-                "status": item["status"],
-                "isSpotTradingAllowed": item["isSpotTradingAllowed"],
+                "open_time": datetime.fromtimestamp(float(row[0]), tz=timezone.utc).replace(tzinfo=None),
+                "open": float(row[1]),
+                "high": float(row[2]),
+                "low": float(row[3]),
+                "close": float(row[4]),
+                "volume": float(row[6]),
             }
-            for item in payload["symbols"]
-            if item.get("status") == "TRADING" and item.get("isSpotTradingAllowed")
-        ]
+            for row in rows
+        ])
 
-        self._exchange_symbols_cache = symbols
-        self._exchange_symbols_cache_updated_at = time()
-        return symbols
+    def _kraken_interval(self, interval: str) -> int:
+        intervals = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240, "1d": 1440, "1w": 10080}
+        try:
+            return intervals[interval]
+        except KeyError as exc:
+            raise ValueError(f"Kraken does not support the '{interval}' candle interval.") from exc
 
-    def _get_binance(self, path: str, params: dict[str, str | int]) -> list | dict:
-        cache_key = json.dumps(
-            [settings.binance_rest_base_url, path, params],
-            sort_keys=True,
-            separators=(",", ":"),
-        )
-        cached = self._binance_response_cache.get(cache_key)
-        cache_ttl = self._binance_cache_ttl(path, params)
-        if cached and time() - cached[0] < cache_ttl:
+    def _interval_delta(self, interval: str) -> timedelta:
+        return {
+            "1m": timedelta(minutes=1),
+            "5m": timedelta(minutes=5),
+            "15m": timedelta(minutes=15),
+            "1h": timedelta(hours=1),
+            "4h": timedelta(hours=4),
+            "1d": timedelta(days=1),
+            "1w": timedelta(days=7),
+        }[interval]
+
+    def _get_kraken(self, path: str, params: dict[str, str | int]) -> dict:
+        cache_key = f"{path}?{httpx.QueryParams(params)}"
+        cached = self._kraken_cache.get(cache_key)
+        ttl = 3600.0 if path.endswith("/AssetPairs") else 60.0 if path.endswith(("/Ticker", "/OHLC")) else 3.0
+        if cached and time() - cached[0] < ttl:
             return cached[1]
 
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                with httpx.Client(base_url=settings.binance_rest_base_url, timeout=15.0, follow_redirects=True) as client:
-                    response = client.get(path, params=params)
-                    response.raise_for_status()
-                    payload = response.json()
-                    self._binance_response_cache[cache_key] = (time(), payload)
-                    if len(self._binance_response_cache) > 256:
-                        self._binance_response_cache = {
-                            key: value
-                            for key, value in self._binance_response_cache.items()
-                            if time() - value[0] < 900
-                        }
-                    return payload
-            except httpx.HTTPStatusError as exc:
-                error_message = exc.response.text
-                try:
-                    error_message = exc.response.json().get("msg", error_message)
-                except ValueError:
-                    pass
-                if exc.response.status_code in {418, 429}:
-                    raise ValueError(f"Binance rate limit reached: {error_message}") from exc
-                if attempt < max_retries - 1:
-                    continue
-                raise ValueError(f"Binance request failed: {error_message}") from exc
-            except httpx.HTTPError as exc:
-                if attempt < max_retries - 1:
-                    continue
-                raise ValueError("Could not reach Binance market data right now.") from exc
+        try:
+            with httpx.Client(base_url=settings.kraken_rest_base_url, timeout=15.0) as client:
+                response = client.get(path, params=params)
+                response.raise_for_status()
+                payload = response.json()
+        except httpx.HTTPError as exc:
+            raise ValueError("Could not reach Kraken market data right now.") from exc
 
-    def _binance_cache_ttl(self, path: str, params: dict[str, str | int]) -> float:
-        if path.endswith("/exchangeInfo"):
-            return 900.0
-        if path.endswith("/ticker/24hr"):
-            return 60.0
-        if path.endswith(("/klines", "/uiKlines")):
-            return 300.0 if params.get("interval") in {"1d", "1w", "1M"} else 30.0
-        if path.endswith("/depth") or path.endswith("/trades"):
-            return 3.0
-        return 15.0
+        errors = payload.get("error") or []
+        if errors:
+            raise ValueError(f"Kraken market-data request failed: {', '.join(errors)}")
+        self._kraken_cache[cache_key] = (time(), payload)
+        if len(self._kraken_cache) > 256:
+            self._kraken_cache = {key: value for key, value in self._kraken_cache.items() if time() - value[0] < 3600}
+        return payload
 
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
         """Fetch chart data from Yahoo Finance's chart endpoint."""
@@ -555,13 +562,12 @@ class MarketDataService:
             return "NSE"
         if symbol.endswith(".BO"):
             return "BSE"
-        return "Binance Spot"
+        return "Kraken Spot"
 
     def _crypto_display_name(self, symbol: str) -> str:
-        for item in self._get_exchange_symbols():
-            if item["symbol"] == symbol:
-                return f"{item['baseAsset']} / {item['quoteAsset']}"
-        return symbol
+        pair = self._kraken_pair_altname(symbol)
+        base = self._kraken_base_name(pair[:-3])
+        return f"{base} / USD"
 
     def _series_value(self, series: list | None, index: int, default: float | None = None) -> float | None:
         if not series or index >= len(series):

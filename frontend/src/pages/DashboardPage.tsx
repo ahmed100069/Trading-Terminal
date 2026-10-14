@@ -10,7 +10,7 @@ import { Panel } from "../components/Panel";
 import { RiskAnalysisPanel } from "../components/RiskAnalysisPanel";
 import { SystemHealthPanel } from "../components/SystemHealthPanel";
 import { WatchlistPanel } from "../components/WatchlistPanel";
-import { formatIndianDateTime, formatRupees } from "../utils/format";
+import { formatIndianDateTime, formatMarketPrice, formatRupees } from "../utils/format";
 import {
   executeManualPaperTrade,
   fetchAssetSearch,
@@ -636,7 +636,7 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
               <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <button onClick={() => onNavigate("markets")} className="rounded-2xl border border-ink/10 bg-white/75 p-5 text-left shadow-soft transition hover:border-leaf/45">
                   <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink/45">{summary.market.market} · {filters.symbol}</p>
-                  <p className="mt-3 font-display text-3xl text-ink">{formatRupees(livePrice ?? summary.market.last_price)}</p>
+                  <p className="mt-3 font-display text-3xl text-ink">{formatMarketPrice(livePrice ?? summary.market.last_price, filters.symbol)}</p>
                   <p className={`mt-2 text-sm font-semibold ${summary.market.price_change_percent >= 0 ? "text-leaf-700" : "text-ruby-700"}`}>
                     {summary.market.price_change_percent >= 0 ? "+" : ""}{summary.market.price_change_percent.toFixed(2)}% · Open market view
                   </p>
@@ -800,7 +800,7 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
                       : "Checking market hours…"}
                 </p>
                 <div className="mt-2 flex flex-wrap items-end gap-3">
-                  <p className="font-display text-4xl text-ink">{formatRupees(displayedPrice)}</p>
+                  <p className="font-display text-4xl text-ink">{formatMarketPrice(displayedPrice, filters.symbol)}</p>
                   <p className={`pb-1 text-base font-semibold ${summary && summary.market.price_change_percent >= 0 ? "text-leaf-700" : "text-ruby-700"}`}>
                     {summary && summary.market.price_change_percent >= 0 ? "+" : ""}
                     {summary?.market.price_change_percent.toFixed(2) ?? "0.00"}%

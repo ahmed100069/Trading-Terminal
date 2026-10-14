@@ -1,5 +1,5 @@
 import type { AssetSearchResult, WatchlistItem } from "../types/trading";
-import { formatRupees } from "../utils/format";
+import { formatMarketPrice } from "../utils/format";
 
 interface WatchlistPanelProps {
   items: WatchlistItem[];
@@ -32,7 +32,7 @@ export function WatchlistPanel({
           placeholder="Try BTC, RELIANCE, TCS, 500325..."
           className="w-full rounded-2xl border border-ink/10 bg-white/75 px-4 py-3 text-sm text-ink outline-none transition placeholder:text-ink/35 focus:border-leaf"
         />
-        <p className="mt-2 text-xs text-ink/45">Search Binance crypto plus Indian equities from NSE and BSE.</p>
+        <p className="mt-2 text-xs text-ink/45">Search crypto plus Indian equities from NSE and BSE.</p>
       </div>
 
       {showSearchSection ? (
@@ -98,7 +98,7 @@ export function WatchlistPanel({
                   <p className="mt-1 text-xs tracking-[0.04em] text-ink/50">{item.display_name ?? item.market}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold text-ink">{formatRupees(item.last_price)}</p>
+                  <p className="font-semibold text-ink">{formatMarketPrice(item.last_price, item.symbol)}</p>
                   <p className={`mt-1 text-sm font-medium ${isPositive ? "text-emerald-700" : "text-ruby-700"}`}>
                     {isPositive ? "+" : ""}
                     {item.price_change_percent.toFixed(2)}%

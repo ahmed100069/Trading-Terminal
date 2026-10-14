@@ -608,7 +608,7 @@ class AIAnalysisService:
         )
 
     def _freshness_status_for_market(self, market: str) -> str:
-        return "Live" if market == "Binance Spot" else "Delayed"
+        return "Live" if market in {"Binance Spot", "Kraken Spot"} else "Delayed"
 
     def _direction_from_score(self, score: float) -> OutlookDirection:
         if score > 0.18:
