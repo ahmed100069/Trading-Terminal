@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://trading-terminal-backend.onrender.com/api/:path*"
+      "destination": "https://trading-terminal-3-ufj7.onrender.com/api/:path*"
     },
     {
       "source": "/(.*)",

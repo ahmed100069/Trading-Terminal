@@ -9,3 +9,5 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.10
+      - key: BINANCE_REST_BASE_URL
+        value: https://data-api.binance.vision

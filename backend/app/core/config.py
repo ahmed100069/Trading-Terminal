@@ -38,7 +38,7 @@ class Settings:
     smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
     smtp_username: str | None = os.getenv("SMTP_USERNAME")
     smtp_password: str | None = os.getenv("SMTP_PASSWORD")
-    binance_rest_base_url: str = os.getenv("BINANCE_REST_BASE_URL", "https://api.binance.com")
+    binance_rest_base_url: str = os.getenv("BINANCE_REST_BASE_URL", "https://data-api.binance.vision")
     binance_ws_base_url: str = os.getenv("BINANCE_WS_BASE_URL", "wss://data-stream.binance.vision/ws")
     default_symbol: str = os.getenv("DEFAULT_SYMBOL", "BTCUSDT")
     default_watchlist: list[str] = field(
