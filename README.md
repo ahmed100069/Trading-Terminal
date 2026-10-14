@@ -1,25 +1,43 @@
 ﻿## Quick Start
 
+### One-command startup
+```powershell
+cd c:\AI_TRADING_PLATFORM
+.\start-platform.ps1
+```
+
 ### Backend
 ```bash
 cd backend
 pip install -r requirements.txt
-uvicorn main:app --reload
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend
 ```bash
-  cd frontend
-  npm install && npm run dev
+cd frontend
+npm install
+npm run dev
 ```
 
 ### Open
-- App: http://localhost:5173
-- API Docs: http://localhost:8000/docs
+- Fixed frontend port: http://localhost:5173
+- Fixed backend port: http://localhost:8000/docs
 
-# Crypto Strategy Terminal
+### Supabase authentication
 
-A student-friendly trading platform that now behaves more like a lightweight TradingView-style terminal. It combines live Binance spot market data for the charting experience with simple weekly strategies, backtesting, paper trading, alerts, and a clean React dashboard.
+Create `frontend/.env.local` with the project root URL and browser-safe publishable key:
+
+```env
+VITE_SUPABASE_URL=https://your-project-ref.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+The one-command startup script passes these values to the backend for session verification. In deployed environments, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the backend and the `VITE_` variables on the frontend. Never use a Supabase secret or service-role key in the browser. Email confirmation must be completed before signing in when enabled.
+
+# Trading Terminal
+
+A multi-asset trading workspace for market charts, weekly strategy analysis, explainable AI outlooks, risk monitoring, alerts, system health, and paper-trading history. The React application uses persistent section navigation and a shared dashboard response as its market-analysis source.
 
 
 ## Architecture
@@ -33,12 +51,14 @@ A student-friendly trading platform that now behaves more like a lightweight Tra
 - `backend/app/api/`: thin API routes that call services.
 
 ### Frontend
-- `frontend/src/pages/DashboardPage.tsx`: main terminal layout.
+- `frontend/src/App.tsx`: application shell, responsive navigation, and deep-link routes (`/overview`, `/markets`, `/ai`, `/risk`, `/alerts`, `/system`, `/portfolio`).
+- `frontend/src/pages/DashboardPage.tsx`: shared market-analysis state rendered in focused Overview, Markets, AI, Risk, Alerts, and System sections.
+- `frontend/src/pages/PortfolioPage.tsx`: paper-trading ledger and performance summary.
 - `frontend/src/components/LiveCandlestickChart.tsx`: TradingView Lightweight Charts integration with live Binance WebSocket updates.
 - `frontend/src/components/WatchlistPanel.tsx`: market selector.
-- `frontend/src/components/OrderBookPanel.tsx`: top-of-book display.
-- `frontend/src/components/RecentTradesPanel.tsx`: recent public trade tape.
+- `frontend/src/components/MarketMicrostructurePanel.tsx`: opt-in, lazy-loaded Binance order book and recent public trades.
 - `frontend/src/components/EquityCurveChart.tsx`: weekly strategy equity curve.
+- `frontend/src/components/RiskAnalysisPanel.tsx` and `SystemHealthPanel.tsx`: focused risk and infrastructure views.
 
 ## Main Features
 
@@ -46,8 +66,7 @@ A student-friendly trading platform that now behaves more like a lightweight Tra
 - Watchlist of major Binance spot pairs.
 - Live candlestick chart with interval switching.
 - Live price display.
-- Order book panel.
-- Recent trades panel.
+- Optional order book and recent public trade details for crypto pairs.
 
 ### Weekly strategy layer
 - Moving Average Crossover.
@@ -81,7 +100,7 @@ A student-friendly trading platform that now behaves more like a lightweight Tra
 - `GET /api/paper-trading/positions`
 - `GET /api/paper-trading/trades`
 - `GET /api/paper-trading/alerts`
-- `GET /api/dashboard/summary`
+- `GET /api/dashboard/summary` (includes AI outlook, risk proxies, and observed system health)
 
 ## Project Structure
 
@@ -116,7 +135,7 @@ A student-friendly trading platform that now behaves more like a lightweight Tra
 - **API client:** httpx
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
 - **Market data:** Binance REST / WebSocket and Yahoo Finance for Indian equities
-- **Architecture:** full-stack API + SPA dashboard with clean service and strategy layers
+- **Architecture:** full-stack API + route-aware SPA with shared market-analysis data and service/strategy layers
 
 ## How To Run
 
@@ -137,6 +156,27 @@ cmd /c npm run dev
 ### Open in browser
 - Frontend: `http://127.0.0.1:5173`
 - Backend docs: `http://127.0.0.1:8000/docs`
+- Fixed ports: frontend `5173`, backend `8000`
+
+Use the one-command startup to avoid stale Vite processes and port drift:
+
+```powershell
+cd c:\AI_TRADING_PLATFORM
+.\start-platform.ps1
+```
+
+### Manual backend
+```powershell
+cd c:\AI_TRADING_PLATFORM\backend
+\.\.venv\Scripts\python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Manual frontend
+```powershell
+cd c:\AI_TRADING_PLATFORM\frontend
+npm install
+npm run dev
+```
 
 ## Suggested Demo Flow
 

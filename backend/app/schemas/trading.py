@@ -80,6 +80,18 @@ class WatchlistItemResponse(BaseModel):
     quote_volume: float
 
 
+class MarketSessionResponse(BaseModel):
+    symbol: str
+    market: str
+    asset_class: str
+    status: str
+    is_open: bool
+    timezone: str
+    session_open: datetime | None = None
+    session_close: datetime | None = None
+    next_open: datetime | None = None
+
+
 class AssetSearchResultResponse(BaseModel):
     symbol: str
     display_name: str
@@ -227,6 +239,7 @@ class PaperTradingRequest(BaseModel):
     initial_cash: float = Field(default=10000.0, gt=0)
     cash_per_trade: float = Field(default=2500.0, gt=0)
     quantity: float | None = Field(default=None, gt=0)
+    risk_budget_amount: float = Field(default=500.0, gt=0)
     ai_entry_threshold_pct: float = Field(default=80.0, ge=0, le=100)
     lookback_weeks: int = Field(default=104, ge=26, le=260)
     parameters: dict[str, float] = Field(default_factory=dict)
@@ -237,6 +250,7 @@ class ManualPaperTradeRequest(BaseModel):
     strategy: StrategyName
     action: ManualTradeAction
     quantity: float | None = Field(default=None, gt=0)
+    risk_budget_amount: float = Field(default=500.0, gt=0)
     note: str | None = Field(default=None, max_length=250)
 
 
@@ -248,6 +262,7 @@ class PaperPositionResponse(BaseModel):
     quantity: float
     entry_price: float
     current_price: float
+    risk_budget_amount: float | None = None
     entry_date: date
     exit_price: float | None = None
     exit_date: date | None = None
@@ -293,10 +308,44 @@ class ManualPaperTradeResponse(BaseModel):
     alerts: list[AlertResponse]
 
 
+class MarketMonitoringSnapshotResponse(BaseModel):
+    status: str
+    symbol: str
+    timeframe: str
+    direction: str
+    probability: float
+    risk_level: str
+    risk_score: float
+    anomaly_status: str
+    anomaly_score: float
+    model_confidence_pct: float | None = None
+    timestamp: datetime
+
+
+class SystemHealthResponse(BaseModel):
+    status: str
+    binance_ws: str
+    redis: str
+    database: str
+    model: str
+    health_status: str
+    latency_ms: int
+    prediction_latency_ms: int
+    data_delay_ms: int
+    timestamp: datetime
+
+
+class MonitoringResponse(BaseModel):
+    symbol: str
+    market_snapshot: MarketMonitoringSnapshotResponse
+    system_health: SystemHealthResponse
+
+
 class DashboardResponse(BaseModel):
     market: MarketOverviewResponse
     backtest: BacktestResponse
     ai_outlook: AIOutlookResponse
+    monitoring: MonitoringResponse
     positions: list[PaperPositionResponse]
     trades: list[PaperTradeResponse]
     alerts: list[AlertResponse]

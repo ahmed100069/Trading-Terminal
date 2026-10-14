@@ -1,6 +1,7 @@
 ﻿from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.schemas.trading import DashboardResponse, StrategyName
@@ -18,10 +19,12 @@ def get_dashboard_summary(
     initial_cash: float = Query(default=10000.0, gt=0),
     cash_per_trade: float = Query(default=2500.0, gt=0),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> DashboardResponse:
     try:
         return dashboard_service.get_summary(
             db=db,
+            user_id=current_user.id,
             symbol=symbol,
             strategy=strategy,
             weeks=weeks,

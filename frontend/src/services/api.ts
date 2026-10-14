@@ -1,6 +1,5 @@
 import type {
   AssetSearchResult,
-  BacktestResponse,
   Candle,
   DashboardQuery,
   DashboardResponse,
@@ -8,22 +7,25 @@ import type {
   ManualPaperTradeResponse,
   MarketInterval,
   MarketOverview,
+  MarketSession,
   OrderBook,
   PaperTradingRequest,
   PaperTradingResponse,
   PaperPosition,
   PaperTrade,
   RecentTrade,
-  StrategyDefinition,
   WatchlistItem,
 } from "../types/trading";
+import { getSupabaseAccessToken } from "../lib/supabase";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api";
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const accessToken = await getSupabaseAccessToken();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(options?.headers ?? {}),
     },
     ...options,
@@ -35,10 +37,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return (await response.json()) as T;
-}
-
-export function fetchStrategies(): Promise<StrategyDefinition[]> {
-  return request<StrategyDefinition[]>("/strategies");
 }
 
 export function fetchDashboardSummary(query: DashboardQuery): Promise<DashboardResponse> {
@@ -64,6 +62,10 @@ export function fetchCandles(symbol: string, interval: MarketInterval, limit = 3
 
 export function fetchMarketOverview(symbol: string): Promise<MarketOverview> {
   return request<MarketOverview>(`/market/${symbol}/overview`);
+}
+
+export function fetchMarketSession(symbol: string): Promise<MarketSession> {
+  return request<MarketSession>(`/market/${symbol}/session`);
 }
 
 export function fetchOrderBook(symbol: string, limit = 12): Promise<OrderBook> {
@@ -93,13 +95,6 @@ export function fetchAssetSearch(query: string, limit = 8): Promise<AssetSearchR
   });
 
   return request<AssetSearchResult[]>(`/market/search?${params.toString()}`);
-}
-
-export function runBacktest(payload: DashboardQuery): Promise<BacktestResponse> {
-  return request<BacktestResponse>("/backtests/run", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
 }
 
 export function syncPaperTrading(payload: PaperTradingRequest): Promise<PaperTradingResponse> {

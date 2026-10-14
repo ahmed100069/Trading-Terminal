@@ -6,14 +6,16 @@ from sqlalchemy import DateTime, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+from app.core.time import utc_now_naive
 
 
 class AlertEvent(Base):
     __tablename__ = "alert_events"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
     symbol: Mapped[str] = mapped_column(String(20), index=True)
     strategy_name: Mapped[str] = mapped_column(String(50), index=True)
     channel: Mapped[str] = mapped_column(String(20), default="console")
     message: Mapped[str] = mapped_column(String(500))
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)

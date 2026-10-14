@@ -13,12 +13,14 @@ class AlertService:
     def create_alert(
         self,
         db: Session,
+        user_id: str,
         symbol: str,
         strategy_name: str,
         message: str,
     ) -> AlertEvent:
         channel = "email" if settings.alert_mode == "email" else "console"
         alert = AlertEvent(
+            user_id=user_id,
             symbol=symbol,
             strategy_name=strategy_name,
             channel=channel,

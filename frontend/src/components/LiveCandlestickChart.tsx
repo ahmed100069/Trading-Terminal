@@ -30,12 +30,15 @@ export interface ChartInspection {
   ema50: number | null;
 }
 
+export type ChartStreamStatus = "CONNECTING" | "LIVE" | "DEGRADED" | "DISCONNECTED" | "NOT_ACTIVE" | "NOT_APPLICABLE";
+
 interface LiveCandlestickChartProps {
   symbol: string;
   interval: MarketInterval;
   candles: Candle[];
   onLivePrice?: (price: number) => void;
   onInspectChange?: (inspection: ChartInspection) => void;
+  onStreamStatus?: (status: ChartStreamStatus) => void;
 }
 
 interface IndicatorPoint {
@@ -64,6 +67,14 @@ function toVolumePoint(candle: Candle): HistogramData {
     value: candle.volume,
     color: candle.close >= candle.open ? "rgba(15, 118, 110, 0.42)" : "rgba(194, 65, 12, 0.38)",
   };
+}
+
+function normalizeCandles(sourceCandles: Candle[]): Candle[] {
+  const candlesByTime = new Map<number, Candle>();
+  sourceCandles.forEach((candle) => candlesByTime.set(toChartTime(candle.open_time), candle));
+  return [...candlesByTime.values()].sort(
+    (left, right) => new Date(left.open_time).getTime() - new Date(right.open_time).getTime(),
+  );
 }
 
 function isCryptoSymbol(symbol: string): boolean {
@@ -111,7 +122,7 @@ function buildInspection(sourceCandles: Candle[], indicators: IndicatorPoint[], 
   };
 }
 
-export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, onInspectChange }: LiveCandlestickChartProps) {
+export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, onInspectChange, onStreamStatus }: LiveCandlestickChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<any>(null);
   const candleSeriesRef = useRef<any>(null);
@@ -127,7 +138,8 @@ export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, o
     }
 
     const chart = createChart(containerRef.current, {
-      autoSize: true,
+      autoSize: false,
+      width: containerRef.current.clientWidth,
       height: 470,
       layout: {
         background: { type: ColorType.Solid, color: "rgba(255, 255, 255, 0)" },
@@ -259,11 +271,12 @@ export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, o
       return;
     }
 
-    candlesRef.current = candles;
-    indicatorRef.current = buildIndicatorPoints(candles);
+    const normalizedCandles = normalizeCandles(candles);
+    candlesRef.current = normalizedCandles;
+    indicatorRef.current = buildIndicatorPoints(normalizedCandles);
 
-    candleSeriesRef.current.setData(candles.map(toCandlestickPoint));
-    volumeSeriesRef.current.setData(candles.map(toVolumePoint));
+    candleSeriesRef.current.setData(normalizedCandles.map(toCandlestickPoint));
+    volumeSeriesRef.current.setData(normalizedCandles.map(toVolumePoint));
     smaSeriesRef.current.setData(
       indicatorRef.current
         .filter((point) => point.sma20 !== null)
@@ -284,13 +297,30 @@ export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, o
 
   useEffect(() => {
     if (!isCryptoSymbol(symbol)) {
+      onStreamStatus?.("NOT_APPLICABLE");
       return undefined;
     }
 
     const websocketBaseUrl = import.meta.env.VITE_BINANCE_WS_BASE_URL ?? "wss://data-stream.binance.vision/ws";
-    const socket = new WebSocket(`${websocketBaseUrl}/${symbol.toLowerCase()}@kline_${interval}`);
+    onStreamStatus?.("CONNECTING");
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    const connectionTimer = window.setTimeout(() => {
+      if (disposed) return;
+      try {
+        socket = new WebSocket(`${websocketBaseUrl}/${symbol.toLowerCase()}@kline_${interval}`);
+      } catch {
+        onStreamStatus?.("DEGRADED");
+        return;
+      }
 
-    socket.onmessage = (event) => {
+      socket.onopen = () => onStreamStatus?.("LIVE");
+      socket.onerror = () => onStreamStatus?.("DEGRADED");
+      socket.onclose = () => {
+        if (!disposed) onStreamStatus?.("DISCONNECTED");
+      };
+
+      socket.onmessage = (event) => {
       const payload = JSON.parse(event.data) as {
         k: {
           t: number;
@@ -319,8 +349,14 @@ export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, o
         is_closed: payload.k.x,
       };
 
+      const latestCandle = candlesRef.current[candlesRef.current.length - 1];
+      if (latestCandle && toChartTime(liveCandle.open_time) < toChartTime(latestCandle.open_time)) {
+        return;
+      }
+
       const currentCandles = [...candlesRef.current];
-      const existingIndex = currentCandles.findIndex((item) => item.open_time === liveCandle.open_time);
+      const liveTime = toChartTime(liveCandle.open_time);
+      const existingIndex = currentCandles.findIndex((item) => toChartTime(item.open_time) === liveTime);
       if (existingIndex >= 0) {
         currentCandles[existingIndex] = liveCandle;
       } else {
@@ -348,12 +384,15 @@ export function LiveCandlestickChart({ symbol, interval, candles, onLivePrice, o
       if (latestInspection) {
         onInspectChange?.(latestInspection);
       }
-    };
+      };
+    }, 0);
 
     return () => {
-      socket.close();
+      disposed = true;
+      window.clearTimeout(connectionTimer);
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
     };
-  }, [interval, onInspectChange, onLivePrice, symbol]);
+  }, [interval, onInspectChange, onLivePrice, onStreamStatus, symbol]);
 
   return <div ref={containerRef} className="h-[470px] w-full" />;
 }

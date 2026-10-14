@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import pandas as pd
+
 from app.backtesting.engine import run_weekly_backtest
 from app.schemas.trading import (
     BacktestMetricsResponse,
@@ -16,16 +18,22 @@ class BacktestService:
     def __init__(self, market_data_service: MarketDataService | None = None) -> None:
         self.market_data_service = market_data_service or MarketDataService()
 
-    def run_backtest(self, request: BacktestRequest) -> BacktestResponse:
+    def run_backtest(
+        self,
+        request: BacktestRequest,
+        price_data: pd.DataFrame | None = None,
+    ) -> BacktestResponse:
         symbol = request.symbol.upper()
         strategy = get_strategy(request.strategy)
-        price_data = self.market_data_service.fetch_weekly_bars(
-            symbol=symbol,
-            weeks=request.weeks,
-        )
-        signals = strategy.generate_signals(price_data=price_data, parameters=request.parameters)
+        backtest_data = price_data
+        if backtest_data is None:
+            backtest_data = self.market_data_service.fetch_weekly_bars(
+                symbol=symbol,
+                weeks=request.weeks,
+            )
+        signals = strategy.generate_signals(price_data=backtest_data, parameters=request.parameters)
         result = run_weekly_backtest(
-            price_data=price_data,
+            price_data=backtest_data,
             signals=signals,
             initial_cash=request.initial_cash,
             cash_per_trade=request.cash_per_trade,
@@ -35,8 +43,8 @@ class BacktestService:
             symbol=symbol,
             strategy=request.strategy,
             strategy_label=strategy.label,
-            bars_processed=len(price_data),
-            latest_close=round(float(price_data["close"].iloc[-1]), 2),
+            bars_processed=len(backtest_data),
+            latest_close=round(float(backtest_data["close"].iloc[-1]), 2),
             latest_signal="BUY" if int(signals.iloc[-1]) == 1 else "CASH",
             metrics=BacktestMetricsResponse(
                 final_equity=round(result.final_equity, 2),

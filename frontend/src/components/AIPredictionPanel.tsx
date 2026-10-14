@@ -61,18 +61,10 @@ export function AIPredictionPanel({ outlook }: AIPredictionPanelProps) {
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="mt-4 grid gap-3 md:grid-cols-1">
           <div className="rounded-2xl bg-white/80 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Upside Probability</p>
             <p className="mt-2 font-display text-2xl text-ink">{outlook.upside_probability_pct.toFixed(1)}%</p>
-          </div>
-          <div className="rounded-2xl bg-white/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Holdout Accuracy</p>
-            <p className="mt-2 font-display text-2xl text-ink">{outlook.metrics.validation_accuracy_pct.toFixed(1)}%</p>
-          </div>
-          <div className="rounded-2xl bg-white/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Walk-Forward Accuracy</p>
-            <p className="mt-2 font-display text-2xl text-ink">{outlook.metrics.walk_forward_accuracy_pct.toFixed(1)}%</p>
           </div>
         </div>
 
@@ -82,6 +74,11 @@ export function AIPredictionPanel({ outlook }: AIPredictionPanelProps) {
         </div>
       </div>
 
+      <details className="rounded-2xl border border-ink/10 bg-white/70 p-4">
+        <summary className="cursor-pointer list-none text-sm font-semibold text-ink marker:hidden">
+          <span className="flex items-center justify-between gap-3">Model validation and supporting analysis <span className="text-xs font-medium text-ink/45">Expand</span></span>
+        </summary>
+        <div className="mt-4 space-y-4">
       <div className="rounded-3xl border border-ink/10 bg-white/75 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ink/45">Per-Asset Model Metrics</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -197,18 +194,10 @@ export function AIPredictionPanel({ outlook }: AIPredictionPanelProps) {
           </div>
         </div>
 
-        <div className="rounded-3xl border border-ruby-100 bg-ruby-50/80 p-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-ruby-700">Risk Notes</p>
-          <div className="mt-3 space-y-2">
-            {outlook.risks.map((risk) => (
-              <p key={risk} className="text-sm leading-6 text-ruby-800/90">
-                {risk}
-              </p>
-            ))}
-          </div>
-          <p className="mt-4 text-xs leading-5 text-ruby-800/80">{outlook.disclaimer}</p>
-        </div>
       </div>
+        <p className="text-xs leading-5 text-ink/50">{outlook.disclaimer}</p>
+        </div>
+      </details>
     </div>
   );
 }

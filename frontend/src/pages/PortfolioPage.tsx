@@ -7,10 +7,6 @@ import { fetchMarketOverview, fetchPaperPositions, fetchPaperTrades } from "../s
 import type { MarketOverview, PaperPosition, PaperTrade } from "../types/trading";
 import { formatIndianDate, formatIndianDateTime, formatRupees } from "../utils/format";
 
-interface PortfolioPageProps {
-  onBack: () => void;
-}
-
 interface PortfolioLedgerRow {
   id: number;
   symbol: string;
@@ -134,7 +130,7 @@ function buildLedgerRows(positions: PaperPosition[], trades: PaperTrade[], liveP
   }).sort((left, right) => new Date(right.boughtOn).getTime() - new Date(left.boughtOn).getTime());
 }
 
-export function PortfolioPage({ onBack }: PortfolioPageProps) {
+export function PortfolioPage() {
   const [positions, setPositions] = useState<PaperPosition[]>([]);
   const [trades, setTrades] = useState<PaperTrade[]>([]);
   const [livePrices, setLivePrices] = useState<Record<string, number>>({});
@@ -156,6 +152,11 @@ export function PortfolioPage({ onBack }: PortfolioPageProps) {
       const [allPositions, allTrades] = await Promise.all([fetchPaperPositions(), fetchPaperTrades()]);
       setPositions(allPositions);
       setTrades(allTrades);
+      setLivePrices(Object.fromEntries(
+        allPositions
+          .filter((position) => position.status === "OPEN")
+          .map((position) => [position.symbol, position.current_price]),
+      ));
       setLastRefreshAt(new Date().toISOString());
       setError(null);
     } catch (loadError) {
@@ -193,18 +194,7 @@ export function PortfolioPage({ onBack }: PortfolioPageProps) {
   }
 
   useEffect(() => {
-    let cancelled = false;
     void loadPortfolio(true);
-    const intervalId = window.setInterval(() => {
-      if (!cancelled) {
-        void loadPortfolio(false);
-      }
-    }, LIVE_REFRESH_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
   }, []);
 
   useEffect(() => {
@@ -218,7 +208,6 @@ export function PortfolioPage({ onBack }: PortfolioPageProps) {
     }
 
     let cancelled = false;
-    void refreshLivePrices(openSymbols);
     const intervalId = window.setInterval(() => {
       if (!cancelled) {
         void refreshLivePrices(openSymbols);
@@ -285,8 +274,8 @@ export function PortfolioPage({ onBack }: PortfolioPageProps) {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.12),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(255,233,182,0.24),transparent_26%)]" />
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative">
-            <p className="text-sm font-semibold uppercase tracking-[0.28em] text-ruby-800/95">Lifetime Paper Portfolio</p>
-            <h1 className="mt-3 font-display text-4xl text-white sm:text-[3.4rem]">Portfolio by Ahmed</h1>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">Paper Trading</p>
+            <h1 className="mt-3 font-display text-3xl text-white sm:text-4xl">Portfolio</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/74">
               Review your full paper-trading history with live open exposure, realized outcomes, and broker-style ledger details.
             </p>
@@ -297,12 +286,6 @@ export function PortfolioPage({ onBack }: PortfolioPageProps) {
               className="rounded-full border border-white/18 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-night"
             >
               {refreshing ? "Refreshing..." : "Refresh Portfolio"}
-            </button>
-            <button
-              onClick={onBack}
-              className="rounded-full border border-white/18 bg-white/10 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white hover:text-night"
-            >
-              Back To Terminal
             </button>
           </div>
         </div>

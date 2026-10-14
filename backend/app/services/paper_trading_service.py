@@ -9,6 +9,7 @@ from app.models.paper_position import PaperPosition
 from app.models.paper_trade import PaperTrade
 from app.schemas.trading import (
     AlertResponse,
+    BacktestRequest,
     ManualPaperTradeRequest,
     ManualPaperTradeResponse,
     ManualTradeAction,
@@ -20,8 +21,25 @@ from app.schemas.trading import (
 )
 from app.services.alert_service import AlertService
 from app.services.ai_analysis_service import AIAnalysisService
+from app.services.backtest_service import BacktestService
 from app.services.market_data_service import MarketDataService
-from app.strategies.registry import get_strategy
+from app.services.market_session_service import closed_market_message, get_market_session
+
+PRACTICE_STRESS_MOVE_PCT = 2.0
+
+
+def estimate_practice_loss(quantity: float, price: float) -> float:
+    return round(max(quantity, 0) * max(price, 0) * PRACTICE_STRESS_MOVE_PCT / 100, 2)
+
+
+def check_practice_risk_budget(quantity: float, price: float, risk_budget_amount: float) -> float:
+    estimated_loss = estimate_practice_loss(quantity, price)
+    if estimated_loss > risk_budget_amount:
+        raise ValueError(
+            f"A {PRACTICE_STRESS_MOVE_PCT:.0f}% price-drop scenario is about {estimated_loss:.2f}, "
+            f"above your practice limit of {risk_budget_amount:.2f}. Reduce the trade amount or raise your limit."
+        )
+    return estimated_loss
 
 
 class PaperTradingService:
@@ -30,14 +48,17 @@ class PaperTradingService:
         market_data_service: MarketDataService | None = None,
         alert_service: AlertService | None = None,
         ai_analysis_service: AIAnalysisService | None = None,
+        backtest_service: BacktestService | None = None,
     ) -> None:
         self.market_data_service = market_data_service or MarketDataService()
         self.alert_service = alert_service or AlertService()
+        self.backtest_service = backtest_service or BacktestService(self.market_data_service)
         self.ai_analysis_service = ai_analysis_service or AIAnalysisService(
             market_data_service=self.market_data_service,
+            backtest_service=self.backtest_service,
         )
 
-    def sync(self, db: Session, request: PaperTradingRequest) -> PaperTradingResponse:
+    def sync(self, db: Session, request: PaperTradingRequest, user_id: str) -> PaperTradingResponse:
         executed_actions: list[str] = []
 
         for raw_symbol in request.symbols:
@@ -45,38 +66,54 @@ class PaperTradingService:
             if not symbol:
                 continue
 
-            action = self._sync_single_symbol(db=db, symbol=symbol, request=request)
+            action = self._sync_single_symbol(db=db, symbol=symbol, request=request, user_id=user_id)
             executed_actions.append(action)
 
         db.commit()
 
         return PaperTradingResponse(
             executed_actions=executed_actions,
-            positions=self.get_positions(db=db),
-            trades=self.get_trades(db=db),
-            alerts=self.get_alerts(db=db),
+            positions=self.get_positions(db=db, user_id=user_id),
+            trades=self.get_trades(db=db, user_id=user_id),
+            alerts=self.get_alerts(db=db, user_id=user_id),
         )
 
-    def execute_manual_trade(self, db: Session, request: ManualPaperTradeRequest) -> ManualPaperTradeResponse:
+    def execute_manual_trade(self, db: Session, request: ManualPaperTradeRequest, user_id: str) -> ManualPaperTradeResponse:
         symbol = request.symbol.upper().strip()
+        session = get_market_session(symbol)
+        if not session.is_open:
+            raise ValueError(closed_market_message(session))
+
         market = self.market_data_service.fetch_market_overview(symbol)
         current_price = market.last_price
         trade_date = datetime.now(timezone.utc).date()
-        position = self._get_open_position(db=db, symbol=symbol, strategy=request.strategy)
+        position = self._get_open_position(db=db, symbol=symbol, strategy=request.strategy, user_id=user_id)
 
         if request.action is ManualTradeAction.buy:
             if request.quantity is None:
                 raise ValueError("Quantity is required for a manual BUY action.")
 
             quantity = round(request.quantity, 6)
+            existing_quantity = position.quantity if position else 0.0
+            projected_quantity = round(existing_quantity + quantity, 6)
+            projected_cost = (position.entry_price * existing_quantity if position else 0.0) + current_price * quantity
+            projected_entry_price = projected_cost / projected_quantity
+            check_practice_risk_budget(
+                projected_quantity,
+                projected_entry_price,
+                request.risk_budget_amount,
+            )
+
             if position is None:
                 position = PaperPosition(
+                    user_id=user_id,
                     symbol=symbol,
                     strategy_name=request.strategy.value,
                     status="OPEN",
                     quantity=quantity,
                     entry_price=current_price,
                     current_price=current_price,
+                    risk_budget_amount=request.risk_budget_amount,
                     entry_date=trade_date,
                     notes=request.note or "Opened manually from the trading terminal.",
                 )
@@ -91,6 +128,7 @@ class PaperTradingService:
                 position.entry_price = round(total_cost / updated_quantity, 6)
                 position.quantity = updated_quantity
                 position.current_price = current_price
+                position.risk_budget_amount = request.risk_budget_amount
                 position.notes = request.note or "Added manually to the existing paper position."
                 summary = f"{symbol}: added {quantity} at {current_price:.2f}; new position size is {updated_quantity}"
                 alert_message = f"Manual paper BUY added to the open position for {symbol}."
@@ -110,6 +148,7 @@ class PaperTradingService:
 
             self.alert_service.create_alert(
                 db=db,
+                user_id=user_id,
                 symbol=symbol,
                 strategy_name=request.strategy.value,
                 message=alert_message,
@@ -159,6 +198,7 @@ class PaperTradingService:
 
             self.alert_service.create_alert(
                 db=db,
+                user_id=user_id,
                 symbol=symbol,
                 strategy_name=request.strategy.value,
                 message=f"Manual paper {trade.side} placed for {symbol}.",
@@ -172,7 +212,7 @@ class PaperTradingService:
             action_summary=summary,
             position=self._to_position_response(position),
             trade=self._to_trade_response(trade),
-            alerts=self.get_alerts(db=db, symbol=symbol, strategy=request.strategy, limit=10),
+            alerts=self.get_alerts(db=db, user_id=user_id, symbol=symbol, strategy=request.strategy, limit=10),
         )
 
     def _sync_single_symbol(
@@ -180,24 +220,43 @@ class PaperTradingService:
         db: Session,
         symbol: str,
         request: PaperTradingRequest,
+        user_id: str,
     ) -> str:
-        strategy = get_strategy(request.strategy)
-        price_data = self.market_data_service.fetch_weekly_bars(
+        session = get_market_session(symbol)
+        if not session.is_open:
+            return f"{symbol}: skipped. {closed_market_message(session)}"
+
+        model_history_weeks = min(max(request.lookback_weeks + 40, 80), 220)
+        weekly_bars = self.market_data_service.fetch_weekly_bars(
             symbol=symbol,
-            weeks=request.lookback_weeks,
+            weeks=max(request.lookback_weeks, model_history_weeks),
         )
-        signals = strategy.generate_signals(price_data=price_data, parameters=request.parameters)
-        signal_date = price_data.index[-1].date()
+        strategy_bars = weekly_bars.tail(request.lookback_weeks)
+        signal_date = strategy_bars.index[-1].date()
         execution_date = datetime.now(timezone.utc).date()
         market = self.market_data_service.fetch_market_overview(symbol)
         execution_price = market.last_price
-        latest_signal = int(signals.iloc[-1])
+        backtest = self.backtest_service.run_backtest(
+            BacktestRequest(
+                symbol=symbol,
+                strategy=request.strategy,
+                weeks=request.lookback_weeks,
+                initial_cash=request.initial_cash,
+                cash_per_trade=request.cash_per_trade,
+                parameters=request.parameters,
+            ),
+            price_data=strategy_bars,
+        )
+        latest_signal = 1 if backtest.latest_signal == "BUY" else 0
         ai_outlook = self.ai_analysis_service.build_outlook(
             symbol=symbol,
             strategy=request.strategy,
             weeks=request.lookback_weeks,
             initial_cash=request.initial_cash,
             cash_per_trade=request.cash_per_trade,
+            overview=market,
+            backtest=backtest,
+            weekly_bars=weekly_bars.tail(model_history_weeks),
         )
         ai_entry_allowed = (
             ai_outlook.direction == "bullish"
@@ -208,6 +267,7 @@ class PaperTradingService:
             db=db,
             symbol=symbol,
             strategy=request.strategy,
+            user_id=user_id,
         )
 
         if position is not None:
@@ -218,13 +278,23 @@ class PaperTradingService:
             if quantity <= 0:
                 return f"{symbol}: skipped because the configured trade size is not large enough to buy the asset."
 
+            estimated_loss = estimate_practice_loss(quantity, execution_price)
+            if estimated_loss > request.risk_budget_amount:
+                return (
+                    f"{symbol}: skipped. A {PRACTICE_STRESS_MOVE_PCT:.0f}% price-drop scenario is about "
+                    f"{estimated_loss:.2f}, above your practice limit of {request.risk_budget_amount:.2f}. "
+                    "Reduce the sync amount or raise your limit."
+                )
+
             position = PaperPosition(
+                user_id=user_id,
                 symbol=symbol,
                 strategy_name=request.strategy.value,
                 status="OPEN",
                 quantity=quantity,
                 entry_price=execution_price,
                 current_price=execution_price,
+                risk_budget_amount=request.risk_budget_amount,
                 entry_date=execution_date,
                 notes="Opened by paper trading sync.",
             )
@@ -254,6 +324,7 @@ class PaperTradingService:
             message = self._build_sync_buy_alert(symbol=symbol, strategy_name=request.strategy.value, latest_signal=latest_signal, ai_outlook=ai_outlook)
             self.alert_service.create_alert(
                 db=db,
+                user_id=user_id,
                 symbol=symbol,
                 strategy_name=request.strategy.value,
                 message=message,
@@ -301,6 +372,7 @@ class PaperTradingService:
             message = f"{symbol} generated a SELL signal for the {request.strategy.value} strategy."
             self.alert_service.create_alert(
                 db=db,
+                user_id=user_id,
                 symbol=symbol,
                 strategy_name=request.strategy.value,
                 message=message,
@@ -361,11 +433,14 @@ class PaperTradingService:
     def get_positions(
         self,
         db: Session,
+        user_id: str,
         symbol: str | None = None,
         strategy: StrategyName | None = None,
         live_price_overrides: dict[str, float] | None = None,
     ) -> list[PaperPositionResponse]:
-        statement: Select[tuple[PaperPosition]] = select(PaperPosition).order_by(
+        statement: Select[tuple[PaperPosition]] = select(PaperPosition).where(
+            PaperPosition.user_id == user_id
+        ).order_by(
             desc(PaperPosition.updated_at)
         )
 
@@ -401,10 +476,13 @@ class PaperTradingService:
     def get_trades(
         self,
         db: Session,
+        user_id: str,
         symbol: str | None = None,
         strategy: StrategyName | None = None,
     ) -> list[PaperTradeResponse]:
-        statement: Select[tuple[PaperTrade]] = select(PaperTrade).order_by(desc(PaperTrade.trade_date))
+        statement: Select[tuple[PaperTrade]] = select(PaperTrade).join(PaperPosition).where(
+            PaperPosition.user_id == user_id
+        ).order_by(desc(PaperTrade.trade_date))
 
         if symbol:
             statement = statement.where(PaperTrade.symbol == symbol.upper())
@@ -417,13 +495,14 @@ class PaperTradingService:
     def get_alerts(
         self,
         db: Session,
+        user_id: str,
         symbol: str | None = None,
         strategy: StrategyName | None = None,
         limit: int = 20,
     ) -> list[AlertResponse]:
         from app.models.alert_event import AlertEvent
 
-        statement = select(AlertEvent).order_by(desc(AlertEvent.created_at)).limit(limit)
+        statement = select(AlertEvent).where(AlertEvent.user_id == user_id).order_by(desc(AlertEvent.created_at)).limit(limit)
 
         if symbol:
             statement = statement.where(AlertEvent.symbol == symbol.upper())
@@ -448,12 +527,14 @@ class PaperTradingService:
         db: Session,
         symbol: str,
         strategy: StrategyName,
+        user_id: str,
     ) -> PaperPosition | None:
         statement = (
             select(PaperPosition)
             .where(PaperPosition.symbol == symbol)
             .where(PaperPosition.strategy_name == strategy.value)
             .where(PaperPosition.status == "OPEN")
+            .where(PaperPosition.user_id == user_id)
         )
         return db.execute(statement).scalars().first()
 
@@ -472,6 +553,7 @@ class PaperTradingService:
             quantity=round(position.quantity, 6),
             entry_price=round(position.entry_price, 2),
             current_price=round(position.current_price, 2),
+            risk_budget_amount=position.risk_budget_amount,
             entry_date=position.entry_date,
             exit_price=round(position.exit_price, 2) if position.exit_price is not None else None,
             exit_date=position.exit_date,

@@ -5,12 +5,14 @@ from app.schemas.trading import (
     CandleResponse,
     MarketInterval,
     MarketOverviewResponse,
+    MarketSessionResponse,
     OrderBookResponse,
     PriceBar,
     RecentTradeResponse,
     WatchlistItemResponse,
 )
 from app.services.market_data_service import MarketDataService
+from app.services.market_session_service import get_market_session
 
 router = APIRouter()
 market_data_service = MarketDataService()
@@ -40,6 +42,14 @@ def search_assets(
 def get_market_overview(symbol: str) -> MarketOverviewResponse:
     try:
         return market_data_service.fetch_market_overview(symbol)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/{symbol}/session", response_model=MarketSessionResponse)
+def get_market_session_status(symbol: str) -> MarketSessionResponse:
+    try:
+        return MarketSessionResponse(**get_market_session(symbol).__dict__)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -6,7 +6,6 @@ from time import time
 
 import httpx
 import pandas as pd
-import yfinance as yf
 
 from app.core.config import settings
 from app.schemas.trading import (
@@ -38,6 +37,15 @@ INDIAN_EQUITY_CATALOG: list[dict[str, str]] = [
     {"symbol": "532174.BO", "display_name": "ICICI Bank", "market": "BSE"},
     {"symbol": "500112.BO", "display_name": "State Bank of India", "market": "BSE"},
 ]
+
+YAHOO_EQUITY_SYMBOL_ALIASES = {
+    "500325.BO": "RELIANCE.BO",
+    "532540.BO": "TCS.BO",
+    "500209.BO": "INFY.BO",
+    "500180.BO": "HDFCBANK.BO",
+    "532174.BO": "ICICIBANK.BO",
+    "500112.BO": "SBIN.BO",
+}
 
 
 class MarketDataService:
@@ -463,58 +471,37 @@ class MarketDataService:
                 raise ValueError("Could not reach Binance market data right now.") from exc
 
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
-        """Fetch chart data using yfinance (more reliable than direct HTTP)."""
-        try:
-            ticker = yf.Ticker(symbol)
-            
-            # Map range and interval to yfinance parameters
-            period_map = {
-                "7d": "7d",
-                "1mo": "1mo",
-                "3mo": "3mo",
-                "2y": "2y",
-                "5y": "5y",
-                "1y": "1y",
-            }
-            period = period_map.get(range_value, "1y")
-            
-            # Fetch historical data
-            hist = ticker.history(period=period, interval=interval)
-            
-            if hist.empty:
-                raise ValueError(f"No equity market data was returned for symbol '{symbol}'.")
-            
-            # Format response to match expected structure
-            timestamps = [int(ts.timestamp()) for ts in hist.index]
-            quote_data = {
-                "open": hist["Open"].tolist(),
-                "high": hist["High"].tolist(),
-                "low": hist["Low"].tolist(),
-                "close": hist["Close"].tolist(),
-                "volume": hist["Volume"].tolist(),
-            }
-            
-            return {
-                "chart": {
-                    "result": [
-                        {
-                            "timestamp": timestamps,
-                            "indicators": {"quote": [quote_data]},
-                            "meta": {
-                                "longName": ticker.info.get("longName", symbol),
-                                "regularMarketPrice": float(hist["Close"].iloc[-1]) if len(hist) > 0 else 0,
-                                "regularMarketTime": int(hist.index[-1].timestamp()) if len(hist) > 0 else int(time()),
-                                "previousClose": float(hist["Close"].iloc[-2]) if len(hist) > 1 else float(hist["Close"].iloc[-1]),
-                                "regularMarketVolume": int(hist["Volume"].iloc[-1]) if len(hist) > 0 else 0,
-                                "regularMarketDayHigh": float(hist["High"].max()) if len(hist) > 0 else 0,
-                                "regularMarketDayLow": float(hist["Low"].min()) if len(hist) > 0 else 0,
-                            },
-                        }
-                    ]
-                }
-            }
-        except Exception as exc:
-            raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}'.") from exc
+        """Fetch chart data from Yahoo Finance's chart endpoint."""
+        yahoo_symbol = YAHOO_EQUITY_SYMBOL_ALIASES.get(symbol, symbol)
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+        last_error: Exception | None = None
+
+        for attempt in range(3):
+            try:
+                with httpx.Client(
+                    timeout=20.0,
+                    follow_redirects=True,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingPlatform/1.0)"},
+                ) as client:
+                    response = client.get(
+                        url,
+                        params={"range": range_value, "interval": interval},
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+
+                chart = payload.get("chart") or {}
+                if chart.get("error"):
+                    raise ValueError(str(chart["error"].get("description") or chart["error"]))
+                if not chart.get("result"):
+                    raise ValueError(f"No equity market data was returned for symbol '{symbol}'.")
+                return payload
+            except (httpx.HTTPError, ValueError) as exc:
+                last_error = exc
+                if attempt == 2:
+                    break
+
+        raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}'.") from last_error
 
     def _normalize_symbol(self, symbol: str) -> str:
         normalized_symbol = symbol.upper().strip()

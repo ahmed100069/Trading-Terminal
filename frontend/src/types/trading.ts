@@ -43,6 +43,18 @@ export interface MarketOverview {
   trade_count: number;
 }
 
+export interface MarketSession {
+  symbol: string;
+  market: string;
+  asset_class: string;
+  status: "OPEN" | "CLOSED";
+  is_open: boolean;
+  timezone: string;
+  session_open?: string | null;
+  session_close?: string | null;
+  next_open?: string | null;
+}
+
 export interface WatchlistItem {
   symbol: string;
   display_name?: string | null;
@@ -180,6 +192,7 @@ export interface PaperPosition {
   quantity: number;
   entry_price: number;
   current_price: number;
+  risk_budget_amount?: number | null;
   entry_date: string;
   exit_price?: number | null;
   exit_date?: string | null;
@@ -215,9 +228,43 @@ export interface DashboardResponse {
   market: MarketOverview;
   backtest: BacktestResponse;
   ai_outlook: AIOutlook;
+  monitoring: MonitoringResponse;
   positions: PaperPosition[];
   trades: PaperTrade[];
   alerts: AlertEvent[];
+}
+
+export interface MarketMonitoringSnapshot {
+  status: string;
+  symbol: string;
+  timeframe: string;
+  direction: string;
+  probability: number;
+  risk_level: string;
+  risk_score: number;
+  anomaly_status: string;
+  anomaly_score: number;
+  model_confidence_pct?: number | null;
+  timestamp: string;
+}
+
+export interface SystemHealth {
+  status: string;
+  binance_ws: string;
+  redis: string;
+  database: string;
+  model: string;
+  health_status: string;
+  latency_ms: number;
+  prediction_latency_ms: number;
+  data_delay_ms: number;
+  timestamp: string;
+}
+
+export interface MonitoringResponse {
+  symbol: string;
+  market_snapshot: MarketMonitoringSnapshot;
+  system_health: SystemHealth;
 }
 
 export interface DashboardQuery {
@@ -234,6 +281,7 @@ export interface PaperTradingRequest {
   initial_cash: number;
   cash_per_trade: number;
   quantity?: number;
+  risk_budget_amount: number;
   ai_entry_threshold_pct?: number;
   lookback_weeks: number;
   parameters?: Record<string, number>;
@@ -244,6 +292,7 @@ export interface ManualPaperTradeRequest {
   strategy: StrategyName;
   action: ManualTradeAction;
   quantity?: number;
+  risk_budget_amount: number;
   note?: string;
 }
 

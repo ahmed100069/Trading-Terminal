@@ -104,6 +104,7 @@ class AIAnalysisService:
         cash_per_trade: float,
         overview: MarketOverviewResponse | None = None,
         backtest: BacktestResponse | None = None,
+        weekly_bars: pd.DataFrame | None = None,
     ) -> AIOutlookResponse:
         generated_at = datetime.now(timezone.utc)
         market_overview = overview or self.market_data_service.fetch_market_overview(symbol)
@@ -120,7 +121,14 @@ class AIAnalysisService:
                 "quote_volume": [candle.quote_volume for candle in daily_candles],
             }
         )
-        weekly_bars = self.market_data_service.fetch_weekly_bars(symbol, min(max(weeks + 40, 80), 220))
+        model_bars = (
+            weekly_bars
+            if weekly_bars is not None
+            else self.market_data_service.fetch_weekly_bars(
+                symbol,
+                min(max(weeks + 40, 80), 220),
+            )
+        )
         backtest_result = backtest or self.backtest_service.run_backtest(
             BacktestRequest(
                 symbol=symbol,
@@ -130,14 +138,14 @@ class AIAnalysisService:
                 cash_per_trade=cash_per_trade,
             )
         )
-        model_result = self._train_weekly_model(weekly_bars, backtest_result.latest_signal)
+        model_result = self._train_weekly_model(model_bars, backtest_result.latest_signal)
 
         components = [
             self._ml_component(model_result),
             self._technical_component(daily_frame),
             self._sentiment_component(daily_frame, backtest_result.latest_signal),
             self._whale_component(daily_frame),
-            self._risk_component(weekly_bars, backtest_result.metrics.win_rate_pct, backtest_result.metrics.max_drawdown_pct),
+            self._risk_component(model_bars, backtest_result.metrics.win_rate_pct, backtest_result.metrics.max_drawdown_pct),
         ]
 
         weighted_score = (

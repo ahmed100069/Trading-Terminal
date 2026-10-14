@@ -1,11 +1,16 @@
 ﻿from __future__ import annotations
 
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+from app.core.time import utc_now_naive
+
+if TYPE_CHECKING:
+    from app.models.paper_position import PaperPosition
 
 
 class PaperTrade(Base):
@@ -21,6 +26,6 @@ class PaperTrade(Base):
     trade_date: Mapped[date] = mapped_column(Date)
     pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
     note: Mapped[str | None] = mapped_column(String(250), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     position: Mapped["PaperPosition"] = relationship(back_populates="trades")

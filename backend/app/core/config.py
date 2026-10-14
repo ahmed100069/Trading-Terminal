@@ -10,11 +10,27 @@ def _split_csv(raw_value: str | None, default: list[str]) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
 
 
+def _default_allowed_origins() -> list[str]:
+    frontend_port = int(os.getenv("FRONTEND_PORT", "5173"))
+    return _split_csv(
+        os.getenv("ALLOWED_ORIGINS"),
+        [
+            f"http://localhost:{frontend_port}",
+            f"http://127.0.0.1:{frontend_port}",
+            "https://trading-terminal-rouge.vercel.app",
+        ],
+    )
+
+
 @dataclass
 class Settings:
-    project_name: str = os.getenv("PROJECT_NAME", "Weekly Trading Platform")
+    project_name: str = os.getenv("PROJECT_NAME", "Trading Terminal")
     api_prefix: str = "/api"
+    frontend_port: int = int(os.getenv("FRONTEND_PORT", "5173"))
+    backend_port: int = int(os.getenv("BACKEND_PORT", "8000"))
     database_url: str = os.getenv("DATABASE_URL", "sqlite:///./trading_platform.db")
+    supabase_url: str = os.getenv("SUPABASE_URL", "").rstrip("/")
+    supabase_publishable_key: str = os.getenv("SUPABASE_PUBLISHABLE_KEY", "")
     alert_mode: str = os.getenv("ALERT_MODE", "console")
     alert_email_from: str | None = os.getenv("ALERT_EMAIL_FROM")
     alert_email_to: str | None = os.getenv("ALERT_EMAIL_TO")
@@ -38,20 +54,7 @@ class Settings:
             ],
         )
     )
-    allowed_origins: list[str] = field(
-        default_factory=lambda: _split_csv(
-            os.getenv("ALLOWED_ORIGINS"),
-            [
-                "http://localhost:5173",
-                "http://127.0.0.1:5173",
-                "http://localhost:5174",
-                "http://127.0.0.1:5174",
-                "http://localhost:5175",
-                "http://127.0.0.1:5175",
-                "https://trading-terminal-rouge.vercel.app",
-            ],
-        )
-    )
+    allowed_origins: list[str] = field(default_factory=_default_allowed_origins)
 
 
 settings = Settings()

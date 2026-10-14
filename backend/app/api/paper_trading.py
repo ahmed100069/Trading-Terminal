@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.core.auth import AuthenticatedUser, require_authenticated_user
 from app.core.database import get_db
 from app.schemas.trading import (
     AlertResponse,
@@ -24,9 +25,10 @@ paper_trading_service = PaperTradingService()
 def sync_paper_trades(
     request: PaperTradingRequest,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> PaperTradingResponse:
     try:
-        return paper_trading_service.sync(db=db, request=request)
+        return paper_trading_service.sync(db=db, request=request, user_id=current_user.id)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -36,9 +38,10 @@ def sync_paper_trades(
 def execute_manual_paper_trade(
     request: ManualPaperTradeRequest,
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> ManualPaperTradeResponse:
     try:
-        return paper_trading_service.execute_manual_trade(db=db, request=request)
+        return paper_trading_service.execute_manual_trade(db=db, request=request, user_id=current_user.id)
     except ValueError as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -49,8 +52,9 @@ def get_positions(
     symbol: Optional[str] = Query(default=None),
     strategy: Optional[StrategyName] = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> list[PaperPositionResponse]:
-    return paper_trading_service.get_positions(db=db, symbol=symbol, strategy=strategy)
+    return paper_trading_service.get_positions(db=db, user_id=current_user.id, symbol=symbol, strategy=strategy)
 
 
 @router.get("/trades", response_model=list[PaperTradeResponse])
@@ -58,8 +62,9 @@ def get_trades(
     symbol: Optional[str] = Query(default=None),
     strategy: Optional[StrategyName] = Query(default=None),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> list[PaperTradeResponse]:
-    return paper_trading_service.get_trades(db=db, symbol=symbol, strategy=strategy)
+    return paper_trading_service.get_trades(db=db, user_id=current_user.id, symbol=symbol, strategy=strategy)
 
 
 @router.get("/alerts", response_model=list[AlertResponse])
@@ -68,9 +73,11 @@ def get_alerts(
     strategy: Optional[StrategyName] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
+    current_user: AuthenticatedUser = Depends(require_authenticated_user),
 ) -> list[AlertResponse]:
     return paper_trading_service.get_alerts(
         db=db,
+        user_id=current_user.id,
         symbol=symbol,
         strategy=strategy,
         limit=limit,

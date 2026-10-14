@@ -9,7 +9,7 @@ import {
 } from "recharts";
 
 import type { EquityPoint } from "../types/trading";
-import { formatIndianDate } from "../utils/format";
+import { formatIndianDate, formatRupees } from "../utils/format";
 
 interface EquityCurveChartProps {
   data: EquityPoint[];
@@ -43,7 +43,7 @@ export function EquityCurveChart({ data }: EquityCurveChartProps) {
             domain={["dataMin - 200", "dataMax + 200"]}
           />
           <Tooltip
-            formatter={(value: number) => [`$${value.toFixed(2)}`, "Equity"]}
+            formatter={(value: number) => [formatRupees(value), "Equity"]}
             labelFormatter={(label) => formatIndianDate(label)}
           />
           <Line
