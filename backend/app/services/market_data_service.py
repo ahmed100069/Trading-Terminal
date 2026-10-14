@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from time import time
 
@@ -46,10 +47,26 @@ YAHOO_EQUITY_SYMBOL_ALIASES = {
     "500112.BO": "SBIN.BO",
 }
 
+# Reuse keep-alive connections across requests. Creating a new client for every
+# provider call repeats DNS, TCP, and TLS setup on the latency-critical path.
+_PROVIDER_TIMEOUT = httpx.Timeout(12.0, connect=3.0)
+_KRAKEN_CLIENT = httpx.Client(
+    base_url=settings.kraken_rest_base_url,
+    timeout=_PROVIDER_TIMEOUT,
+    limits=httpx.Limits(max_connections=40, max_keepalive_connections=20),
+)
+_YAHOO_CLIENT = httpx.Client(
+    timeout=_PROVIDER_TIMEOUT,
+    follow_redirects=True,
+    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingPlatform/1.0)"},
+    limits=httpx.Limits(max_connections=40, max_keepalive_connections=20),
+)
+
 
 class MarketDataService:
     def __init__(self) -> None:
         self._kraken_cache: dict[str, tuple[float, dict]] = {}
+        self._yahoo_cache: dict[str, tuple[float, dict]] = {}
         self._kraken_pairs_by_altname: dict[str, tuple[str, dict]] = {}
         self._kraken_pairs_updated_at = 0.0
 
@@ -172,8 +189,11 @@ class MarketDataService:
                     quote_volume=float(ticker["v"][1]) * last_price,
                 )
 
-        for symbol in equity_symbols:
-            overview = self._fetch_equity_market_overview(symbol)
+        # Yahoo is a separate upstream request per equity; fetch independently
+        # in parallel while preserving the requested output order below.
+        with ThreadPoolExecutor(max_workers=min(6, len(equity_symbols) or 1)) as pool:
+            equity_overviews = list(pool.map(self._fetch_equity_market_overview, equity_symbols))
+        for symbol, overview in zip(equity_symbols, equity_overviews):
             items_by_symbol[symbol] = WatchlistItemResponse(
                 symbol=overview.symbol,
                 display_name=overview.display_name,
@@ -489,15 +509,14 @@ class MarketDataService:
     def _get_kraken(self, path: str, params: dict[str, str | int]) -> dict:
         cache_key = f"{path}?{httpx.QueryParams(params)}"
         cached = self._kraken_cache.get(cache_key)
-        ttl = 3600.0 if path.endswith("/AssetPairs") else 60.0 if path.endswith(("/Ticker", "/OHLC")) else 3.0
+        ttl = 3600.0 if path.endswith("/AssetPairs") else 5.0 if path.endswith("/Ticker") else 15.0 if path.endswith("/OHLC") else 3.0
         if cached and time() - cached[0] < ttl:
             return cached[1]
 
         try:
-            with httpx.Client(base_url=settings.kraken_rest_base_url, timeout=15.0) as client:
-                response = client.get(path, params=params)
-                response.raise_for_status()
-                payload = response.json()
+            response = _KRAKEN_CLIENT.get(path, params=params)
+            response.raise_for_status()
+            payload = response.json()
         except httpx.HTTPError as exc:
             raise ValueError("Could not reach Kraken market data right now.") from exc
 
@@ -512,32 +531,38 @@ class MarketDataService:
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
         """Fetch chart data from Yahoo Finance's chart endpoint."""
         yahoo_symbol = YAHOO_EQUITY_SYMBOL_ALIASES.get(symbol, symbol)
+        cache_key = f"{yahoo_symbol}:{range_value}:{interval}"
+        cached = self._yahoo_cache.get(cache_key)
+        cache_ttl = 15.0 if interval in {"1m", "5m", "15m"} else 60.0 if interval in {"1h", "1d"} else 300.0
+        if cached and time() - cached[0] < cache_ttl:
+            return cached[1]
         url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
         last_error: Exception | None = None
 
-        for attempt in range(3):
+        for attempt in range(2):
             try:
-                with httpx.Client(
-                    timeout=20.0,
-                    follow_redirects=True,
-                    headers={"User-Agent": "Mozilla/5.0 (compatible; TradingPlatform/1.0)"},
-                ) as client:
-                    response = client.get(
-                        url,
-                        params={"range": range_value, "interval": interval},
-                    )
-                    response.raise_for_status()
-                    payload = response.json()
+                response = _YAHOO_CLIENT.get(
+                    url,
+                    params={"range": range_value, "interval": interval},
+                )
+                response.raise_for_status()
+                payload = response.json()
 
                 chart = payload.get("chart") or {}
                 if chart.get("error"):
                     raise ValueError(str(chart["error"].get("description") or chart["error"]))
                 if not chart.get("result"):
                     raise ValueError(f"No equity market data was returned for symbol '{symbol}'.")
+                self._yahoo_cache[cache_key] = (time(), payload)
+                if len(self._yahoo_cache) > 256:
+                    self._yahoo_cache = {
+                        key: value for key, value in self._yahoo_cache.items()
+                        if time() - value[0] < 3600
+                    }
                 return payload
             except (httpx.HTTPError, ValueError) as exc:
                 last_error = exc
-                if attempt == 2:
+                if attempt == 1:
                     break
 
         raise ValueError(f"Could not reach the equity market feed for symbol '{symbol}'.") from last_error

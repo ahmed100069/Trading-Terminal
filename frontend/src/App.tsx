@@ -1,9 +1,7 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { Suspense, lazy, useEffect, useState, type MouseEvent } from "react";
 
 import { useAuth } from "./auth/AuthContext";
 import { AccountMenu } from "./components/account/AccountMenu";
-import { DashboardPage } from "./pages/DashboardPage";
-import { PortfolioPage } from "./pages/PortfolioPage";
 import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage } from "./pages/auth/AuthPages";
 import {
   applicationRoutePath,
@@ -14,6 +12,9 @@ import {
   type ApplicationRoute,
   type TerminalSection,
 } from "./types/navigation";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then(({ DashboardPage: page }) => ({ default: page })));
+const PortfolioPage = lazy(() => import("./pages/PortfolioPage").then(({ PortfolioPage: page }) => ({ default: page })));
 
 function App() {
   const { status, isSessionStale } = useAuth();
@@ -136,11 +137,13 @@ function App() {
         </header>
 
         <div className="min-w-0">
-          {route.kind === "app" && route.section === "portfolio" ? (
-            <PortfolioPage />
-          ) : (
-            <DashboardPage section={route.kind === "app" && route.section !== "portfolio" ? route.section : "overview"} onNavigate={navigate} />
-          )}
+          <Suspense fallback={<main role="status" className="grid min-h-[50vh] place-items-center text-sm text-ink/60">Loading workspace…</main>}>
+            {route.kind === "app" && route.section === "portfolio" ? (
+              <PortfolioPage />
+            ) : (
+              <DashboardPage section={route.kind === "app" && route.section !== "portfolio" ? route.section : "overview"} onNavigate={navigate} />
+            )}
+          </Suspense>
         </div>
       </div>
     </div>

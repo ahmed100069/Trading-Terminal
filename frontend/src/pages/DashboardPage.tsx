@@ -1,10 +1,8 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
-import { AIPredictionPanel } from "../components/AIPredictionPanel";
 import { AlertsList } from "../components/AlertsList";
 import { ChartInspectorPanel } from "../components/ChartInspectorPanel";
-import { EquityCurveChart } from "../components/EquityCurveChart";
-import { LiveCandlestickChart, type ChartInspection, type ChartStreamStatus } from "../components/LiveCandlestickChart";
+import type { ChartInspection, ChartStreamStatus } from "../components/LiveCandlestickChart";
 import { MarketMicrostructurePanel } from "../components/MarketMicrostructurePanel";
 import { Panel } from "../components/Panel";
 import { RiskAnalysisPanel } from "../components/RiskAnalysisPanel";
@@ -38,6 +36,9 @@ const AI_REFRESH_MS = 300000;
 const AI_SYNC_ENTRY_THRESHOLD = 80;
 const PRACTICE_STRESS_MOVE_PCT = 2;
 const DASHBOARD_SETTINGS_STORAGE_KEY = "trading-platform-dashboard-settings";
+const AIPredictionPanel = lazy(() => import("../components/AIPredictionPanel").then(({ AIPredictionPanel: panel }) => ({ default: panel })));
+const EquityCurveChart = lazy(() => import("../components/EquityCurveChart").then(({ EquityCurveChart: chart }) => ({ default: chart })));
+const LiveCandlestickChart = lazy(() => import("../components/LiveCandlestickChart").then(({ LiveCandlestickChart: chart }) => ({ default: chart })));
 
 function estimatePracticeLoss(quantity: number, price: number): number {
   return Math.round(Math.max(quantity, 0) * Math.max(price, 0) * PRACTICE_STRESS_MOVE_PCT) / 100;
@@ -348,8 +349,10 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
   }
 
   async function refreshAnalysis(nextFilters: DashboardQuery) {
-    const dashboard = await fetchDashboardSummary(nextFilters);
-    const watchlistItems = await fetchWatchlist().catch(() => null);
+    const [dashboard, watchlistItems] = await Promise.all([
+      fetchDashboardSummary(nextFilters),
+      fetchWatchlist().catch(() => null),
+    ]);
     setSummary(dashboard);
     if (watchlistItems) {
       setWatchlist(watchlistItems);
@@ -700,7 +703,9 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
           summary ? (
             <div className="space-y-5">
               <Panel title="AI Market Outlook" subtitle="Explainable prediction built from historical price and volume features for the stated horizon.">
-                <AIPredictionPanel outlook={summary.ai_outlook} />
+                <Suspense fallback={<div className="h-56 animate-pulse rounded-2xl bg-sage/50" aria-label="Loading AI outlook chart" />}>
+                  <AIPredictionPanel outlook={summary.ai_outlook} />
+                </Suspense>
               </Panel>
               <Panel title="Weekly Strategy Backtest" subtitle={`${summary.backtest.strategy_label} · historical simulation from closed weekly bars`}>
                 <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -709,7 +714,11 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
                   <SummaryMetric label="Win rate" value={`${summary.backtest.metrics.win_rate_pct.toFixed(1)}%`} />
                   <SummaryMetric label="Trades" value={String(summary.backtest.metrics.trade_count)} />
                 </div>
-                {summary.backtest.equity_curve.length ? <EquityCurveChart data={summary.backtest.equity_curve} /> : <p className="text-sm text-ink/55">No backtest equity history is available.</p>}
+                {summary.backtest.equity_curve.length ? (
+                  <Suspense fallback={<div className="h-72 animate-pulse rounded-2xl bg-sage/50" aria-label="Loading equity chart" />}>
+                    <EquityCurveChart data={summary.backtest.equity_curve} />
+                  </Suspense>
+                ) : <p className="text-sm text-ink/55">No backtest equity history is available.</p>}
               </Panel>
             </div>
           ) : <DataState loading={loading} error={error} />
@@ -823,14 +832,16 @@ export function DashboardPage({ section, onNavigate }: DashboardPageProps) {
             </div>
 
             {candles.length > 0 ? (
-              <LiveCandlestickChart
-                symbol={filters.symbol}
-                interval={chartInterval}
-                candles={candles}
-                onLivePrice={setLivePrice}
-                onInspectChange={setChartInspection}
-                onStreamStatus={setChartStreamStatus}
-              />
+              <Suspense fallback={<div className="grid h-[470px] animate-pulse place-items-center rounded-2xl bg-sage/40 text-sm text-ink/50">Loading chart…</div>}>
+                <LiveCandlestickChart
+                  symbol={filters.symbol}
+                  interval={chartInterval}
+                  candles={candles}
+                  onLivePrice={setLivePrice}
+                  onInspectChange={setChartInspection}
+                  onStreamStatus={setChartStreamStatus}
+                />
+              </Suspense>
             ) : (
               <div role={chartLoading ? "status" : "alert"} className="grid h-[470px] place-items-center rounded-2xl border border-ink/8 bg-white/45 px-5 text-center text-sm text-ink/55">
                 {chartLoading ? "Loading chart history…" : error ? `Chart data unavailable: ${error}` : "No chart candles are available for this symbol and interval."}

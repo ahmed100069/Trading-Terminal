@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 
 from sqlalchemy import text
@@ -46,12 +47,18 @@ class DashboardService:
     ) -> DashboardResponse:
         request_started = perf_counter()
         normalized_symbol = symbol.upper()
-        market = self.market_data_service.fetch_market_overview(normalized_symbol)
         model_history_weeks = min(max(weeks + 40, 80), 220)
-        weekly_bars = self.market_data_service.fetch_weekly_bars(
-            normalized_symbol,
-            max(weeks, model_history_weeks),
-        )
+        # These upstream reads are independent. Run them concurrently so the
+        # response waits for the slower provider request only once.
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            market_future = pool.submit(self.market_data_service.fetch_market_overview, normalized_symbol)
+            history_future = pool.submit(
+                self.market_data_service.fetch_weekly_bars,
+                normalized_symbol,
+                max(weeks, model_history_weeks),
+            )
+            market = market_future.result()
+            weekly_bars = history_future.result()
         backtest = self.backtest_service.run_backtest(
             BacktestRequest(
                 symbol=normalized_symbol,
