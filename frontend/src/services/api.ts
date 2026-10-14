@@ -18,7 +18,11 @@ import type {
 } from "../types/trading";
 import { getSupabaseAccessToken } from "../lib/supabase";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api";
+// Production requests go through Vercel's /api rewrite to the Render backend.
+// Local development keeps using the local FastAPI server unless explicitly overridden.
+const API_BASE_URL = import.meta.env.PROD
+  ? "/api"
+  : (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api");
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const accessToken = await getSupabaseAccessToken();

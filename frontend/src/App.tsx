@@ -45,7 +45,7 @@ function App() {
       : route.kind === "app" && status !== "signed-in"
         ? { kind: "public", page: "login" }
         : route.kind === "public" && status === "signed-in" && route.page !== "reset-password"
-          ? { kind: "app", section: "overview" }
+          ? { kind: "app", section: "markets" }
           : null;
 
     if (nextRoute) {

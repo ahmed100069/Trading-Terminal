@@ -105,7 +105,7 @@ export function LoginPage() {
       return;
     }
 
-    window.location.assign("/app/overview");
+    window.location.assign("/app/markets");
   }
 
   return (
