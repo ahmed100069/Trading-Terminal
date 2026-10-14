@@ -34,7 +34,7 @@ import type {
 import type { TerminalSection } from "../types/navigation";
 
 const CHART_INTERVALS: MarketInterval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
-const AI_REFRESH_MS = 60000;
+const AI_REFRESH_MS = 300000;
 const AI_SYNC_ENTRY_THRESHOLD = 80;
 const PRACTICE_STRESS_MOVE_PCT = 2;
 const DASHBOARD_SETTINGS_STORAGE_KEY = "trading-platform-dashboard-settings";

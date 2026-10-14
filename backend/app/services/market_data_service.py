@@ -53,6 +53,7 @@ class MarketDataService:
         self._exchange_symbols_cache: list[dict[str, str | bool]] = []
         self._exchange_symbols_cache_updated_at = 0.0
         self._exchange_symbols_cache_ttl_seconds = 900.0
+        self._binance_response_cache: dict[str, tuple[float, list | dict]] = {}
 
     def fetch_weekly_bars(self, symbol: str, weeks: int = 156) -> pd.DataFrame:
         normalized_symbol = self._normalize_symbol(symbol)
@@ -449,26 +450,57 @@ class MarketDataService:
         return symbols
 
     def _get_binance(self, path: str, params: dict[str, str | int]) -> list | dict:
+        cache_key = json.dumps(
+            [settings.binance_rest_base_url, path, params],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        cached = self._binance_response_cache.get(cache_key)
+        cache_ttl = self._binance_cache_ttl(path, params)
+        if cached and time() - cached[0] < cache_ttl:
+            return cached[1]
+
         max_retries = 2
         for attempt in range(max_retries):
             try:
                 with httpx.Client(base_url=settings.binance_rest_base_url, timeout=15.0, follow_redirects=True) as client:
                     response = client.get(path, params=params)
                     response.raise_for_status()
-                    return response.json()
+                    payload = response.json()
+                    self._binance_response_cache[cache_key] = (time(), payload)
+                    if len(self._binance_response_cache) > 256:
+                        self._binance_response_cache = {
+                            key: value
+                            for key, value in self._binance_response_cache.items()
+                            if time() - value[0] < 900
+                        }
+                    return payload
             except httpx.HTTPStatusError as exc:
-                if attempt < max_retries - 1:
-                    continue
                 error_message = exc.response.text
                 try:
                     error_message = exc.response.json().get("msg", error_message)
                 except ValueError:
                     pass
+                if exc.response.status_code in {418, 429}:
+                    raise ValueError(f"Binance rate limit reached: {error_message}") from exc
+                if attempt < max_retries - 1:
+                    continue
                 raise ValueError(f"Binance request failed: {error_message}") from exc
             except httpx.HTTPError as exc:
                 if attempt < max_retries - 1:
                     continue
                 raise ValueError("Could not reach Binance market data right now.") from exc
+
+    def _binance_cache_ttl(self, path: str, params: dict[str, str | int]) -> float:
+        if path.endswith("/exchangeInfo"):
+            return 900.0
+        if path.endswith("/ticker/24hr"):
+            return 60.0
+        if path.endswith(("/klines", "/uiKlines")):
+            return 300.0 if params.get("interval") in {"1d", "1w", "1M"} else 30.0
+        if path.endswith("/depth") or path.endswith("/trades"):
+            return 3.0
+        return 15.0
 
     def _get_yahoo_chart(self, symbol: str, range_value: str, interval: str) -> dict:
         """Fetch chart data from Yahoo Finance's chart endpoint."""
