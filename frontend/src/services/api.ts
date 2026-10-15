@@ -24,9 +24,51 @@ const API_BASE_URL = import.meta.env.PROD
   ? "/api"
   : (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000/api");
 
+// Keep the initial dashboard fan-out from looking like a burst to the API host.
+// A single queue is shared by every service call in this browser tab.
+const API_REQUEST_SPACING_MS = 300;
+const API_429_RETRY_DELAYS_MS = [800, 1_600, 3_200];
+let apiRequestQueue: Promise<void> = Promise.resolve();
+let nextApiRequestAt = 0;
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function scheduleApiRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const scheduled = apiRequestQueue.then(async () => {
+    const spacing = Math.max(0, nextApiRequestAt - Date.now());
+    if (spacing > 0) await wait(spacing);
+    nextApiRequestAt = Date.now() + API_REQUEST_SPACING_MS;
+    return operation();
+  });
+  apiRequestQueue = scheduled.then(() => undefined, () => undefined);
+  return scheduled;
+}
+
+async function fetchWithRateLimitRetry(url: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt += 1) {
+    const response = await scheduleApiRequest(() => fetch(url, init));
+    if (response.status !== 429 || attempt >= API_429_RETRY_DELAYS_MS.length) return response;
+
+    const retryAfterHeader = response.headers.get("Retry-After");
+    const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : Number.NaN;
+    const retryAfterDate = retryAfterHeader ? Date.parse(retryAfterHeader) : Number.NaN;
+    const retryAfterMs = Number.isFinite(retryAfterSeconds)
+      ? retryAfterSeconds * 1_000
+      : Number.isFinite(retryAfterDate)
+        ? retryAfterDate - Date.now()
+        : Number.NaN;
+    const delay = Number.isFinite(retryAfterMs) && retryAfterMs > 0
+      ? Math.min(retryAfterMs, 30_000)
+      : API_429_RETRY_DELAYS_MS[attempt];
+    await wait(delay);
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const accessToken = await getSupabaseAccessToken();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetchWithRateLimitRetry(`${API_BASE_URL}${path}`, {
     headers: {
       "Content-Type": "application/json",
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
@@ -37,6 +79,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
   if (!response.ok) {
     const errorPayload = await response.json().catch(() => null);
+    if (response.status === 429) {
+      throw new Error(errorPayload?.detail ?? "The market service is temporarily busy. Requests were retried; please try again shortly.");
+    }
     throw new Error(errorPayload?.detail ?? `Request failed with status ${response.status}`);
   }
 

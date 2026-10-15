@@ -1,17 +1,31 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from collections.abc import Generator
+import os
 
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.core.config import settings
 
-sqlite_connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
+if os.getenv("RENDER") and settings.database_url.startswith("sqlite"):
+    raise RuntimeError(
+        "Render must use a persistent PostgreSQL DATABASE_URL. Configure the Supabase "
+        "PostgreSQL connection string in the trading-terminal-backend service."
+    )
+
+database_url = settings.database_url
+if database_url.startswith("postgres://"):
+    database_url = "postgresql+psycopg://" + database_url.removeprefix("postgres://")
+elif database_url.startswith("postgresql://"):
+    database_url = "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
+
+sqlite_connect_args = {"check_same_thread": False} if database_url.startswith("sqlite") else {}
 
 engine = create_engine(
-    settings.database_url,
+    database_url,
     connect_args=sqlite_connect_args,
+    pool_pre_ping=True,
     future=True,
 )
 SessionLocal = sessionmaker(

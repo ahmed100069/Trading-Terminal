@@ -35,6 +35,8 @@ VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 
 The one-command startup script passes these values to the backend for session verification. In deployed environments, set `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` on the backend and the `VITE_` variables on the frontend. Existing backends using the legacy `SUPABASE_ANON_KEY` name are supported as a fallback. Never use a Supabase secret or service-role key in the browser. Email confirmation must be completed before signing in when enabled.
 
+Paper trades and positions are stored by the backend in PostgreSQL. For production, set the Render `DATABASE_URL` environment variable to the Supabase project's PostgreSQL connection URI (use the Supabase session pooler URI if direct database connections are unavailable). Keep this URI private. The backend accepts `postgres://` and `postgresql://` URIs. Render refuses to start with its ephemeral SQLite default so a missing database setting cannot silently lose new trades. Local development may continue using SQLite.
+
 # Trading Terminal
 
 A multi-asset trading workspace for market charts, weekly strategy analysis, explainable AI outlooks, risk monitoring, alerts, system health, and paper-trading history. The React application uses persistent section navigation and a shared dashboard response as its market-analysis source.
@@ -47,7 +49,7 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 - `backend/app/services/market_data_service.py`: Kraken REST integration for crypto overview, candles, weekly bars, order book, recent trades, and watchlist data; Yahoo Finance for Indian equities.
 - `backend/app/strategies/`: modular weekly strategies.
 - `backend/app/backtesting/engine.py`: readable weekly simulation engine.
-- `backend/app/services/paper_trading_service.py`: paper-trading sync, alerts, and SQLite persistence.
+- `backend/app/services/paper_trading_service.py`: paper-trading sync, alerts, and database persistence.
 - `backend/app/api/`: thin API routes that call services.
 
 ### Frontend
@@ -81,7 +83,7 @@ A multi-asset trading workspace for market charts, weekly strategy analysis, exp
 - Trade history.
 
 ### Paper trading
-- SQLite-backed simulated positions and trades.
+- Database-backed simulated positions and trades (SQLite locally; PostgreSQL in production).
 - Fractional crypto quantity support.
 - Console or email alerts.
 
